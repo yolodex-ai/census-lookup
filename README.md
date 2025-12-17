@@ -192,8 +192,8 @@ uv sync --all-extras
 # Run unit tests (fast, no network required)
 uv run pytest tests/unit -v
 
-# Run integration tests (downloads real data, slower)
-uv run pytest tests/integration -v -s
+# Run functional tests (downloads real data, slower)
+uv run pytest tests/functional -v -s
 
 # Run all tests
 uv run pytest tests/ -v
