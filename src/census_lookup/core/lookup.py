@@ -10,6 +10,12 @@ from shapely.geometry import Point
 
 from census_lookup.address.matcher import GeocodingResult, TIGERAddressMatcher
 from census_lookup.address.parser import AddressParser, ParsedAddress
+from census_lookup.census.acs import (
+    ACS_VARIABLES,
+    ACS_VARIABLE_GROUPS,
+    DEFAULT_ACS_VARIABLES,
+    get_acs_variables_for_group,
+)
 from census_lookup.census.variables import DEFAULT_VARIABLES, VARIABLES, get_variables_for_group
 from census_lookup.core.geoid import GeoLevel, GEOIDParser
 from census_lookup.core.spatial import SpatialIndex
@@ -88,6 +94,8 @@ class CensusLookup:
         geo_level: GeoLevel = GeoLevel.BLOCK,
         variables: Optional[List[str]] = None,
         variable_groups: Optional[List[str]] = None,
+        acs_variables: Optional[List[str]] = None,
+        acs_variable_groups: Optional[List[str]] = None,
         auto_download: bool = True,
     ):
         """
@@ -96,9 +104,16 @@ class CensusLookup:
         Args:
             data_dir: Directory for cached data. Defaults to ~/.census-lookup/
             geo_level: Default geographic level for lookups
-            variables: Census variables to include (e.g., ["P1_001N", "P2_001N"])
-            variable_groups: Variable group names (e.g., ["population", "housing"])
+            variables: PL 94-171 Census variables (e.g., ["P1_001N", "P2_001N"])
+            variable_groups: PL 94-171 variable groups (e.g., ["population", "housing"])
+            acs_variables: ACS variables (e.g., ["B19013_001E", "B15003_022E"])
+            acs_variable_groups: ACS variable groups (e.g., ["income", "education"])
             auto_download: Whether to automatically download missing data
+
+        Note:
+            ACS data is only available at tract level and above. If you request
+            ACS variables with geo_level=BLOCK or BLOCK_GROUP, the ACS data will
+            be joined at tract level.
         """
         self.geo_level = geo_level
         self.auto_download = auto_download
@@ -111,6 +126,7 @@ class CensusLookup:
 
         # Determine variables to use
         self._variables = self._resolve_variables(variables, variable_groups)
+        self._acs_variables = self._resolve_acs_variables(acs_variables, acs_variable_groups)
 
         # State-specific components (loaded lazily)
         self._loaded_states: Dict[str, Dict] = {}
@@ -123,7 +139,7 @@ class CensusLookup:
         variables: Optional[List[str]],
         variable_groups: Optional[List[str]],
     ) -> List[str]:
-        """Resolve variable list from variables and/or groups."""
+        """Resolve PL 94-171 variable list from variables and/or groups."""
         result = set()
 
         if variables:
@@ -136,6 +152,23 @@ class CensusLookup:
         if not result:
             # Default to basic population
             result.add("P1_001N")
+
+        return sorted(result)
+
+    def _resolve_acs_variables(
+        self,
+        acs_variables: Optional[List[str]],
+        acs_variable_groups: Optional[List[str]],
+    ) -> List[str]:
+        """Resolve ACS variable list from variables and/or groups."""
+        result = set()
+
+        if acs_variables:
+            result.update(acs_variables)
+
+        if acs_variable_groups:
+            for group in acs_variable_groups:
+                result.update(get_acs_variables_for_group(group))
 
         return sorted(result)
 
@@ -154,6 +187,15 @@ class CensusLookup:
 
         # Ensure data is downloaded
         self._data_manager.ensure_state_data(state_fips, show_progress=True)
+
+        # Also download ACS data if ACS variables are requested
+        if self._acs_variables:
+            self._data_manager.ensure_acs_data(
+                state_fips,
+                variables=self._acs_variables,
+                geo_level="tract",  # ACS is at tract level
+                show_progress=True,
+            )
 
         # Load blocks for spatial lookup
         blocks = self._data_manager.get_blocks(state_fips)
@@ -269,11 +311,31 @@ class CensusLookup:
         # Parse GEOID components
         components = GEOIDParser.parse(block_geoid)
 
-        # Get census data
+        # Get census data (PL 94-171)
         census_data = self._data_manager.duckdb.get_variables_for_geoid(
             geoid,
             self._variables,
         )
+
+        # Get ACS data if requested (at tract level)
+        if self._acs_variables:
+            tract_geoid = block_geoid[:11]  # Truncate to tract level
+            try:
+                acs_df = self._data_manager.get_acs_data(
+                    components.state,
+                    self._acs_variables,
+                    GeoLevel.TRACT,
+                )
+                # Find matching tract
+                acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
+                if not acs_row.empty:
+                    for var in self._acs_variables:
+                        if var in acs_row.columns:
+                            value = acs_row[var].iloc[0]
+                            census_data[var] = value if pd.notna(value) else None
+            except Exception:
+                # ACS data not available - continue without it
+                pass
 
         return LookupResult(
             input_address=address,
@@ -368,11 +430,31 @@ class CensusLookup:
         geoid = block_geoid[: level.geoid_length]
         components = GEOIDParser.parse(block_geoid)
 
-        # Get census data
+        # Get census data (PL 94-171)
         census_data = self._data_manager.duckdb.get_variables_for_geoid(
             geoid,
             self._variables,
         )
+
+        # Get ACS data if requested (at tract level)
+        if self._acs_variables:
+            tract_geoid = block_geoid[:11]  # Truncate to tract level
+            try:
+                acs_df = self._data_manager.get_acs_data(
+                    components.state,
+                    self._acs_variables,
+                    GeoLevel.TRACT,
+                )
+                # Find matching tract
+                acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
+                if not acs_row.empty:
+                    for var in self._acs_variables:
+                        if var in acs_row.columns:
+                            value = acs_row[var].iloc[0]
+                            census_data[var] = value if pd.notna(value) else None
+            except Exception:
+                # ACS data not available - continue without it
+                pass
 
         return LookupResult(
             latitude=lat,
@@ -466,6 +548,38 @@ class CensusLookup:
         self._variables = sorted(set(variables))
 
     def add_variable_group(self, group: str) -> None:
-        """Add variables from a group to the current selection."""
+        """Add PL 94-171 variables from a group to the current selection."""
         new_vars = get_variables_for_group(group)
         self._variables = sorted(set(self._variables) | set(new_vars))
+
+    # ==========================================================================
+    # ACS (American Community Survey) Support
+    # ==========================================================================
+
+    @property
+    def acs_variables(self) -> List[str]:
+        """List of selected ACS variables."""
+        return self._acs_variables
+
+    @property
+    def available_acs_variables(self) -> Dict[str, str]:
+        """Dictionary of all available ACS variables and descriptions."""
+        return ACS_VARIABLES.copy()
+
+    @property
+    def available_acs_variable_groups(self) -> Dict[str, List[str]]:
+        """Dictionary of ACS variable groups."""
+        return ACS_VARIABLE_GROUPS.copy()
+
+    def set_acs_variables(self, variables: List[str]) -> None:
+        """Update the list of ACS variables to retrieve."""
+        self._acs_variables = sorted(set(variables))
+
+    def add_acs_variable_group(self, group: str) -> None:
+        """Add ACS variables from a group to the current selection."""
+        new_vars = get_acs_variables_for_group(group)
+        self._acs_variables = sorted(set(self._acs_variables) | set(new_vars))
+
+    def clear_acs_variables(self) -> None:
+        """Clear all ACS variables."""
+        self._acs_variables = []

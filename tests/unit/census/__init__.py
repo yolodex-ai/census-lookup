@@ -1,0 +1,1 @@
+"""Census module tests."""

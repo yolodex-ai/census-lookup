@@ -12,7 +12,11 @@ from census_lookup.core.geoid import GeoLevel
 from census_lookup.data.catalog import DataCatalog, DatasetInfo
 from census_lookup.data.constants import FIPS_STATES, TIGER_URLS, normalize_state
 from census_lookup.data.converter import GeoParquetConverter
-from census_lookup.data.downloader import CensusDataDownloader, TIGERDownloader
+from census_lookup.data.downloader import (
+    ACSDataDownloader,
+    CensusDataDownloader,
+    TIGERDownloader,
+)
 from census_lookup.data.duckdb_engine import DuckDBEngine
 
 
@@ -79,6 +83,7 @@ class DataManager:
         self.catalog = DataCatalog(self.data_dir / "catalog.json")
         self.downloader = TIGERDownloader()
         self.census_downloader = CensusDataDownloader()
+        self.acs_downloader = ACSDataDownloader()
         self.converter = GeoParquetConverter()
 
         # DuckDB engine (lazy initialization)
@@ -369,3 +374,139 @@ class DataManager:
     def list_available_states(self, dataset_type: str = "blocks") -> List[str]:
         """List states with available data."""
         return self.catalog.list_states(dataset_type)
+
+    # ==========================================================================
+    # ACS Data Support
+    # ==========================================================================
+
+    def ensure_acs_data(
+        self,
+        state: str,
+        variables: Optional[List[str]] = None,
+        geo_level: str = "tract",
+        show_progress: bool = True,
+    ) -> None:
+        """
+        Ensure ACS data is downloaded for a state.
+
+        Args:
+            state: State name, abbreviation, or FIPS code
+            variables: ACS variables to download (defaults to DEFAULT_ACS_VARIABLES)
+            geo_level: Geographic level (tract, block group, county)
+            show_progress: Show progress indicators
+        """
+        state_fips = normalize_state(state)
+        self._ensure_acs_data(state_fips, variables, geo_level, show_progress)
+
+    def _ensure_acs_data(
+        self,
+        state_fips: str,
+        variables: Optional[List[str]] = None,
+        geo_level: str = "tract",
+        show_progress: bool = True,
+    ) -> None:
+        """Ensure ACS data is available for a state."""
+        # Check if already downloaded
+        dataset_key = f"acs5_{geo_level}"
+        if self.catalog.is_available(dataset_key, state_fips):
+            return
+
+        if show_progress:
+            print(
+                f"Downloading ACS data for {FIPS_STATES.get(state_fips, state_fips)} "
+                f"at {geo_level} level..."
+            )
+
+        # Get default variables if not specified
+        if variables is None:
+            from census_lookup.census.acs import DEFAULT_ACS_VARIABLES
+
+            variables = DEFAULT_ACS_VARIABLES
+
+        # Download via Census API
+        csv_path = self.temp_dir / f"acs5_{state_fips}_{geo_level}.csv"
+        self.acs_downloader.download_acs_for_state(
+            state_fips,
+            variables=variables,
+            geo_level=geo_level,
+            dest_path=csv_path,
+            show_progress=show_progress,
+        )
+
+        # Convert to parquet
+        output_path = self.census_dir / "acs5" / geo_level / f"{state_fips}.parquet"
+        self.converter.convert_census_csv(csv_path, output_path)
+
+        # Register in catalog
+        info = DatasetInfo.create(
+            dataset_type=dataset_key,
+            state_fips=state_fips,
+            file_path=output_path,
+            source_url=self.acs_downloader.api_base,
+        )
+        self.catalog.register(info)
+
+        # Clean up
+        csv_path.unlink(missing_ok=True)
+
+    def get_acs_data(
+        self,
+        state_fips: str,
+        variables: List[str],
+        geo_level: GeoLevel = GeoLevel.TRACT,
+    ) -> pd.DataFrame:
+        """
+        Load ACS data for specified variables.
+
+        Args:
+            state_fips: 2-digit state FIPS code
+            variables: ACS variable codes
+            geo_level: Geographic level (TRACT, BLOCK_GROUP, or COUNTY)
+
+        Returns:
+            DataFrame with GEOID and requested variables
+        """
+        state_fips = normalize_state(state_fips)
+
+        # Map GeoLevel to string for catalog
+        geo_level_str = {
+            GeoLevel.TRACT: "tract",
+            GeoLevel.BLOCK_GROUP: "block group",
+            GeoLevel.COUNTY: "county",
+        }.get(geo_level)
+
+        if geo_level_str is None:
+            raise ValueError(
+                f"ACS data is not available at {geo_level.name} level. "
+                "Use TRACT, BLOCK_GROUP, or COUNTY."
+            )
+
+        dataset_key = f"acs5_{geo_level_str}"
+
+        if self.auto_download and not self.catalog.is_available(dataset_key, state_fips):
+            self._ensure_acs_data(state_fips, variables, geo_level_str)
+
+        path = self.catalog.get_path(dataset_key, state_fips)
+        if not path:
+            raise DataNotAvailableError(state_fips, dataset_key)
+
+        # Use DuckDB for efficient querying
+        geoid_length = geo_level.geoid_length
+        var_list = ", ".join(variables)
+
+        # Read available columns and select those that exist
+        check_sql = f"SELECT * FROM read_parquet('{path}') LIMIT 0"
+        available_cols = set(self.duckdb.query(check_sql).columns)
+
+        # Filter to only variables that exist in the data
+        existing_vars = [v for v in variables if v in available_cols]
+        if not existing_vars:
+            raise ValueError(
+                f"None of the requested variables found in ACS data. "
+                f"Available columns: {available_cols}"
+            )
+
+        var_list = ", ".join(existing_vars)
+        sql = f"SELECT GEOID, {var_list} FROM read_parquet('{path}')"
+
+        return self.duckdb.query(sql)

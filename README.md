@@ -7,7 +7,9 @@ A Python library for mapping US addresses to Census 2020 block-level data locall
 - **Fully offline geocoding** using TIGER Address Range files (~95% match rate)
 - **Lazy per-state data downloading** - only download data for states you need
 - **Configurable geographic levels** - block, block group, tract, or county
-- **User-selectable Census variables** - choose which PL 94-171 variables to include
+- **Two Census data sources**:
+  - **PL 94-171** (Redistricting Data): Population, race, housing counts at block level
+  - **ACS 5-Year Estimates**: Income, education, employment, housing characteristics at tract level
 - **Efficient batch processing** using DuckDB for fast joins
 - **CLI and Python API** - use from command line or in your code
 
@@ -72,7 +74,9 @@ census-lookup info
 
 ## Census Variables
 
-The library includes PL 94-171 redistricting data:
+### PL 94-171 (Redistricting Data)
+
+Available at **block level** and above. Includes:
 
 - **P1**: Race (total population, by race categories)
 - **P2**: Hispanic/Latino by Race
@@ -88,6 +92,40 @@ lookup = CensusLookup(variable_groups=["population", "housing"])
 lookup = CensusLookup(variables=["P1_001N", "P1_003N", "H1_001N"])
 ```
 
+### ACS 5-Year Estimates (American Community Survey)
+
+Available at **tract level** and above. Includes richer demographic data:
+
+- **Income**: Median household income, per capita income, poverty status
+- **Education**: Educational attainment levels
+- **Employment**: Labor force status, occupation, industry
+- **Housing**: Home values, rent, tenure, housing characteristics
+- **Health Insurance**: Coverage by type
+- **Commute**: Transportation to work, travel time
+- **And more**: Language, internet access, household composition
+
+```python
+from census_lookup import CensusLookup, GeoLevel, list_acs_variable_groups
+
+# See available ACS variable groups
+print(list_acs_variable_groups())
+
+# Use ACS variables with your lookup
+lookup = CensusLookup(
+    geo_level=GeoLevel.TRACT,
+    variables=["P1_001N"],  # PL 94-171 population
+    acs_variables=["B19013_001E", "B25077_001E"],  # Median income, home value
+    # Or use variable groups:
+    # acs_variable_groups=["income", "housing"],
+)
+
+result = lookup.geocode("123 Main St, Los Angeles, CA 90012")
+print(f"Median Income: ${result.census_data['B19013_001E']:,}")
+```
+
+**Note**: ACS data is available at tract level and above. When using block-level
+geocoding with ACS variables, the ACS data is joined at tract level.
+
 ## Data Storage
 
 Data is cached in `~/.census-lookup/`:
@@ -99,10 +137,12 @@ Data is cached in `~/.census-lookup/`:
 │   ├── addrfeat/         # Address range features
 │   └── blocks/           # Block polygons
 └── census/
-    └── pl94171/          # Census data
+    ├── pl94171/          # PL 94-171 data
+    └── acs5/             # ACS 5-Year data
+        └── tract/        # ACS at tract level
 ```
 
-Typical storage per state: 100-300MB
+Typical storage per state: 100-300MB (TIGER + PL 94-171), plus ~10-50MB for ACS
 
 ## How It Works
 

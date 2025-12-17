@@ -342,3 +342,188 @@ class CensusDataDownloader:
             raise ValueError(f"Unknown geo_level: {geo_level}")
 
         return params
+
+
+class ACSDataDownloader:
+    """
+    Downloads American Community Survey (ACS) 5-Year Estimates data.
+
+    ACS provides richer demographic data than PL 94-171, including:
+    - Income and poverty
+    - Educational attainment
+    - Employment and occupation
+    - Housing characteristics
+    - Health insurance
+    - Commute patterns
+
+    Note: ACS data is available at tract level and above, not at block level.
+    For block-level data, use PL 94-171.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        timeout: int = 120,
+        year: int = 2020,
+    ):
+        """
+        Initialize ACS data downloader.
+
+        Args:
+            api_key: Optional Census API key (increases rate limits)
+            timeout: Request timeout in seconds
+            year: ACS year (default 2020)
+        """
+        self.api_key = api_key
+        self.timeout = timeout
+        self.year = year
+        self.session = requests.Session()
+        self.session.headers.update(
+            {"User-Agent": "census-lookup/0.1.0 (https://github.com/census-lookup)"}
+        )
+
+    @property
+    def api_base(self) -> str:
+        """Get the API base URL for the configured year."""
+        return f"https://api.census.gov/data/{self.year}/acs/acs5"
+
+    def download_acs_for_state(
+        self,
+        state_fips: str,
+        variables: List[str],
+        geo_level: str = "tract",
+        dest_path: Optional[Path] = None,
+        show_progress: bool = True,
+    ) -> Path:
+        """
+        Download ACS 5-Year data for a state via Census API.
+
+        Args:
+            state_fips: 2-digit state FIPS code
+            variables: List of variable codes to download
+            geo_level: Geographic level (tract, block group, county)
+                       Note: ACS is not available at block level
+            dest_path: Optional output path (CSV)
+            show_progress: Show download progress
+
+        Returns:
+            Path to downloaded CSV file
+        """
+        import pandas as pd
+
+        # Validate geo_level
+        valid_levels = ["tract", "block group", "county"]
+        if geo_level not in valid_levels:
+            raise ValueError(
+                f"Invalid geo_level for ACS: {geo_level}. "
+                f"ACS is available at: {', '.join(valid_levels)}"
+            )
+
+        geo_params = self._build_geo_params(state_fips, geo_level)
+        all_data = []
+
+        # Batch variables into groups of 50 (Census API limit)
+        var_batches = [variables[i : i + 50] for i in range(0, len(variables), 50)]
+
+        iterator = var_batches
+        if show_progress:
+            iterator = tqdm(var_batches, desc=f"Downloading ACS data for {state_fips}")
+
+        for batch in iterator:
+            params = {
+                "get": ",".join(["GEO_ID", "NAME"] + batch),
+                "for": geo_params["for"],
+                "in": geo_params.get("in", ""),
+            }
+            if self.api_key:
+                params["key"] = self.api_key
+
+            response = self.session.get(
+                self.api_base, params=params, timeout=self.timeout
+            )
+
+            if response.status_code == 400:
+                # Check for invalid variable error
+                error_msg = response.text
+                raise DownloadError(
+                    self.api_base,
+                    400,
+                    f"Invalid API request. Check variable names. {error_msg}",
+                )
+            response.raise_for_status()
+
+            data = response.json()
+            all_data.append(data)
+
+        # Merge batches
+        dfs = []
+        for data in all_data:
+            df = pd.DataFrame(data[1:], columns=data[0])
+            dfs.append(df)
+
+        if len(dfs) > 1:
+            # Merge on GEO_ID, keeping NAME from first batch
+            result = dfs[0]
+            for df in dfs[1:]:
+                # Drop NAME from subsequent batches to avoid duplicates
+                df_no_name = df.drop(columns=["NAME"], errors="ignore")
+                result = result.merge(df_no_name, on="GEO_ID", how="outer")
+        else:
+            result = dfs[0]
+
+        # Clean up GEOID format
+        # Census API returns GEO_ID like "1400000US06037101100" for tracts
+        # We need just the numeric part: "06037101100"
+        result["GEOID"] = result["GEO_ID"].str.extract(r"(\d+)$")[0]
+
+        # Convert numeric columns
+        for col in variables:
+            if col in result.columns:
+                result[col] = pd.to_numeric(result[col], errors="coerce")
+
+        # Save
+        if dest_path is None:
+            dest_path = Path(f"acs5_{state_fips}_{geo_level}_{self.year}.csv")
+
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(dest_path, index=False)
+        return dest_path
+
+    def _build_geo_params(self, state_fips: str, geo_level: str) -> dict:
+        """Build geographic parameters for Census API."""
+        params = {}
+
+        if geo_level == "block group":
+            params["for"] = "block group:*"
+            params["in"] = f"state:{state_fips} county:* tract:*"
+        elif geo_level == "tract":
+            params["for"] = "tract:*"
+            params["in"] = f"state:{state_fips} county:*"
+        elif geo_level == "county":
+            params["for"] = "county:*"
+            params["in"] = f"state:{state_fips}"
+        else:
+            raise ValueError(f"Unknown geo_level: {geo_level}")
+
+        return params
+
+    def get_available_variables(self) -> dict:
+        """
+        Fetch list of available ACS variables from the API.
+
+        Returns:
+            Dictionary mapping variable codes to descriptions
+        """
+        url = f"{self.api_base}/variables.json"
+        response = self.session.get(url, timeout=self.timeout)
+        response.raise_for_status()
+
+        data = response.json()
+        variables = data.get("variables", {})
+
+        # Filter to only estimate variables (ending in E)
+        return {
+            k: v.get("label", "")
+            for k, v in variables.items()
+            if k.endswith("E") and not k.startswith("GEOCOMP")
+        }
