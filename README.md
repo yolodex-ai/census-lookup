@@ -157,6 +157,24 @@ Typical storage per state: 100-300MB (TIGER + PL 94-171), plus ~10-50MB for ACS
 5. **Spatial lookup** using rtree index to find containing census block
 6. **Join census data** using DuckDB for efficient queries
 
+## Data Sources
+
+All data is downloaded from official US Census Bureau sources:
+
+- **TIGER/Line Shapefiles**: Geographic boundaries and address ranges
+  - https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+  - Address Range Feature files (ADDRFEAT) for geocoding
+  - Block shapefiles for spatial lookups
+
+- **PL 94-171 Redistricting Data**: Population and housing counts
+  - https://www.census.gov/programs-surveys/decennial-census/about/rdo/summary-files.html
+  - Available at block level and above
+
+- **American Community Survey (ACS) 5-Year Estimates**: Socioeconomic data
+  - https://www.census.gov/programs-surveys/acs
+  - Available at tract level and above
+  - Accessed via Census API: https://api.census.gov
+
 ## Development
 
 ```bash
