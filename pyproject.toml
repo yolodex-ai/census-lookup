@@ -8,6 +8,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Harry Waye"}
 ]
+keywords = ["census", "geocoding", "gis", "tiger", "demographics"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -43,6 +44,11 @@ dev = [
 
 [project.scripts]
 census-lookup = "census_lookup.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/yolodex-ai/census-lookup"
+Repository = "https://github.com/yolodex-ai/census-lookup"
+Issues = "https://github.com/yolodex-ai/census-lookup/issues"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
