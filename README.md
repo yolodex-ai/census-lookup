@@ -28,14 +28,20 @@ pip install census-lookup
 ### CLI (no install required)
 
 ```bash
-# Look up a single address
+# Look up a single address (auto-downloads data as needed)
 uvx census-lookup lookup "123 Main St, Los Angeles, CA 90012" --level block
+
+# Include specific census variables
+uvx census-lookup lookup "123 Main St, Los Angeles, CA 90012" -v P1_001N -v H1_001N
 
 # Process a batch file
 uvx census-lookup batch input.csv output.csv --address-column addr --level tract
 
-# Pre-download data for states
+# Pre-download data for states (optional - data downloads automatically)
 uvx census-lookup download CA TX NY
+
+# Disable auto-download (useful if you've pre-downloaded data)
+uvx census-lookup lookup "123 Main St, LA, CA" --no-download
 
 # List available census variables
 uvx census-lookup variables
