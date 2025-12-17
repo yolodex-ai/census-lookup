@@ -24,6 +24,37 @@ class TestGeoLevel:
         assert GeoLevel.BLOCK_GROUP.value == "block_group"
         assert GeoLevel.BLOCK.value == "block"
 
+    def test_from_geoid_length_exact_matches(self):
+        """Test from_geoid_length with exact GEOID lengths."""
+        assert GeoLevel.from_geoid_length(2) == GeoLevel.STATE
+        assert GeoLevel.from_geoid_length(5) == GeoLevel.COUNTY
+        assert GeoLevel.from_geoid_length(11) == GeoLevel.TRACT
+        assert GeoLevel.from_geoid_length(12) == GeoLevel.BLOCK_GROUP
+        assert GeoLevel.from_geoid_length(15) == GeoLevel.BLOCK
+
+    def test_from_geoid_length_longer_values(self):
+        """Test from_geoid_length with lengths longer than standard."""
+        # Lengths >= 15 should return BLOCK
+        assert GeoLevel.from_geoid_length(16) == GeoLevel.BLOCK
+        assert GeoLevel.from_geoid_length(20) == GeoLevel.BLOCK
+
+    def test_from_geoid_length_intermediate_values(self):
+        """Test from_geoid_length with non-standard lengths."""
+        # Length 3-4 should return STATE (less than 5 for county)
+        assert GeoLevel.from_geoid_length(3) == GeoLevel.STATE
+        assert GeoLevel.from_geoid_length(4) == GeoLevel.STATE
+        # Length 6-10 should return COUNTY (>= 5 but < 11 for tract)
+        assert GeoLevel.from_geoid_length(6) == GeoLevel.COUNTY
+        assert GeoLevel.from_geoid_length(10) == GeoLevel.COUNTY
+        # Length 13-14 should return BLOCK_GROUP (>= 12 but < 15)
+        assert GeoLevel.from_geoid_length(13) == GeoLevel.BLOCK_GROUP
+        assert GeoLevel.from_geoid_length(14) == GeoLevel.BLOCK_GROUP
+
+    def test_from_geoid_length_short_values(self):
+        """Test from_geoid_length with very short lengths."""
+        assert GeoLevel.from_geoid_length(1) == GeoLevel.STATE
+        assert GeoLevel.from_geoid_length(0) == GeoLevel.STATE
+
 
 class TestGEOIDComponents:
     """Tests for GEOIDComponents dataclass."""

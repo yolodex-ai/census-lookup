@@ -1,14 +1,14 @@
 [project]
 name = "census-lookup"
-version = "0.1.1"
-description = "Offline address-to-Census 2020 data mapping for Python"
+version = "0.1.2"
+description = "Offline address-to-Census data mapping for Python with PL 94-171 and ACS support"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Harry Waye"}
 ]
-keywords = ["census", "geocoding", "gis", "tiger", "demographics"]
+keywords = ["census", "geocoding", "gis", "tiger", "demographics", "acs", "pl94171"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",

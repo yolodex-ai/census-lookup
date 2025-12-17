@@ -118,14 +118,20 @@ class DuckDBEngine:
         # Build the variable list for SELECT (from the subquery result 'c')
         var_list = ", ".join([f"c.{v}" for v in variables])
 
+        # For higher geographic levels, we need to aggregate (SUM) the block data
+        # The census parquet files store data at block level, so we GROUP BY
+        # the truncated GEOID to get tract/county/state totals
+        agg_vars = ", ".join([f"SUM({v}) as {v}" for v in variables])
+
         sql = f"""
         SELECT
             i.GEOID,
             {var_list}
         FROM input_geoids i
         LEFT JOIN (
-            SELECT LEFT(GEOID, {geoid_length}) as GEOID, {', '.join(variables)}
+            SELECT LEFT(GEOID, {geoid_length}) as GEOID, {agg_vars}
             FROM {parquet_glob}
+            GROUP BY LEFT(GEOID, {geoid_length})
         ) c ON i.GEOID = c.GEOID
         """
 
@@ -177,6 +183,7 @@ class DuckDBEngine:
         self,
         geoid: str,
         variables: List[str],
+        geo_level: Optional[GeoLevel] = None,
     ) -> Dict[str, Optional[float]]:
         """
         Get census variables for a single GEOID.
@@ -184,11 +191,16 @@ class DuckDBEngine:
         Args:
             geoid: Geographic identifier
             variables: Variables to retrieve
+            geo_level: Geographic level (auto-detected from GEOID length if not provided)
 
         Returns:
             Dictionary of variable values
         """
-        result = self.join_census_data([geoid], variables)
+        # Auto-detect geo_level from GEOID length if not provided
+        if geo_level is None:
+            geo_level = GeoLevel.from_geoid_length(len(geoid))
+
+        result = self.join_census_data([geoid], variables, geo_level)
 
         if result.empty:
             return {v: None for v in variables}
@@ -314,14 +326,18 @@ class DuckDBEngine:
         geoid_length = geo_level.geoid_length
         parquet_glob = f"read_parquet([{', '.join(repr(p) for p in parquet_paths)}])"
 
+        # Aggregate block data to requested level
+        agg_vars = ", ".join([f"SUM({v}) as {v}" for v in variables])
+
         sql = f"""
         SELECT
             i.*,
             {var_list}
         FROM input_data i
         LEFT JOIN (
-            SELECT LEFT(GEOID, {geoid_length}) as _geoid, {', '.join(variables)}
+            SELECT LEFT(GEOID, {geoid_length}) as _geoid, {agg_vars}
             FROM {parquet_glob}
+            GROUP BY LEFT(GEOID, {geoid_length})
         ) c ON i.{geoid_column} = c._geoid
         """
 
