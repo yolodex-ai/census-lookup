@@ -16,10 +16,33 @@ A Python library for mapping US addresses to Census 2020 block-level data locall
 ## Installation
 
 ```bash
+# Using uv (recommended)
+uv add census-lookup
+
+# Using pip
 pip install census-lookup
 ```
 
 ## Quick Start
+
+### CLI (no install required)
+
+```bash
+# Look up a single address
+uvx census-lookup lookup "123 Main St, Los Angeles, CA 90012" --level block
+
+# Process a batch file
+uvx census-lookup batch input.csv output.csv --address-column addr --level tract
+
+# Pre-download data for states
+uvx census-lookup download CA TX NY
+
+# List available census variables
+uvx census-lookup variables
+
+# Show cache info
+uvx census-lookup info
+```
 
 ### Python API
 
@@ -41,25 +64,6 @@ print(f"Population: {result.census_data['P1_001N']}")
 import pandas as pd
 df = pd.read_csv("addresses.csv")
 results = lookup.geocode_batch(df["address"], progress=True)
-```
-
-### CLI
-
-```bash
-# Look up a single address
-census-lookup lookup "123 Main St, Los Angeles, CA 90012" --level block
-
-# Process a batch file
-census-lookup batch input.csv output.csv --address-column addr --level tract
-
-# Pre-download data for states
-census-lookup download CA TX NY
-
-# List available census variables
-census-lookup variables
-
-# Show cache info
-census-lookup info
 ```
 
 ## Geographic Levels
@@ -156,14 +160,16 @@ Typical storage per state: 100-300MB (TIGER + PL 94-171), plus ~10-50MB for ACS
 ## Development
 
 ```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
+# Clone and install with uv
+git clone https://github.com/yolodex-ai/census-lookup.git
+cd census-lookup
+uv sync --dev
 
 # Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run linting
-ruff check src/
+uv run ruff check src/
 ```
 
 ## License
