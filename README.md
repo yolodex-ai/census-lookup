@@ -187,9 +187,15 @@ All data is downloaded from official US Census Bureau sources:
 # Clone and install with uv
 git clone https://github.com/yolodex-ai/census-lookup.git
 cd census-lookup
-uv sync --dev
+uv sync --all-extras
 
-# Run tests
+# Run unit tests (fast, no network required)
+uv run pytest tests/unit -v
+
+# Run integration tests (downloads real data, slower)
+uv run pytest tests/integration -v -s
+
+# Run all tests
 uv run pytest tests/ -v
 
 # Run linting
