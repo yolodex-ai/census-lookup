@@ -1,6 +1,6 @@
 """Census 2020 PL 94-171 variable definitions."""
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # PL 94-171 Variable Definitions
 # Reference: https://www.census.gov/programs-surveys/decennial-census/about/rdo/summary-files.html

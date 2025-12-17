@@ -8,16 +8,15 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
 
-from census_lookup.address.matcher import GeocodingResult, TIGERAddressMatcher
+from census_lookup.address.matcher import TIGERAddressMatcher
 from census_lookup.address.parser import AddressParser, ParsedAddress
 from census_lookup.census.acs import (
-    ACS_VARIABLES,
     ACS_VARIABLE_GROUPS,
-    DEFAULT_ACS_VARIABLES,
+    ACS_VARIABLES,
     get_acs_variables_for_group,
 )
-from census_lookup.census.variables import DEFAULT_VARIABLES, VARIABLES, get_variables_for_group
-from census_lookup.core.geoid import GeoLevel, GEOIDParser
+from census_lookup.census.variables import VARIABLES, get_variables_for_group
+from census_lookup.core.geoid import GEOIDParser, GeoLevel
 from census_lookup.core.spatial import SpatialIndex
 from census_lookup.data.constants import normalize_state
 from census_lookup.data.manager import DataManager
@@ -222,7 +221,8 @@ class CensusLookup:
                 self.load_state(state_fips)
             else:
                 raise ValueError(
-                    f"State {state_fips} not loaded. Call load_state() first or enable auto_download."
+                    f"State {state_fips} not loaded. "
+                    "Call load_state() first or enable auto_download."
                 )
 
     def _get_state_from_address(self, parsed: ParsedAddress) -> Optional[str]:
@@ -254,7 +254,7 @@ class CensusLookup:
         # Parse address
         try:
             parsed = self._parser.parse(address)
-        except Exception as e:
+        except Exception:
             return LookupResult(
                 input_address=address,
                 match_type="parse_error",
@@ -272,7 +272,7 @@ class CensusLookup:
         # Ensure state is loaded
         try:
             self._ensure_state_loaded(state_fips)
-        except ValueError as e:
+        except ValueError:
             return LookupResult(
                 input_address=address,
                 parsed_address=parsed.to_dict(),

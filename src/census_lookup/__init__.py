@@ -22,7 +22,7 @@ from census_lookup.census.variables import (
     list_tables,
     list_variable_groups,
 )
-from census_lookup.core.geoid import GeoLevel, GEOIDParser
+from census_lookup.core.geoid import GEOIDParser, GeoLevel
 from census_lookup.core.lookup import CensusLookup, LookupResult
 
 __version__ = "0.1.0"

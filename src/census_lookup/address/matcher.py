@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
-import numpy as np
 from shapely.geometry import LineString, Point
 
 from census_lookup.address.normalizer import StreetNormalizer

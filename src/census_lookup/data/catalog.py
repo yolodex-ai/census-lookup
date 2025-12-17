@@ -78,7 +78,7 @@ class DataCatalog:
                     self._data.datasets = {
                         k: DatasetInfo(**v) for k, v in datasets.items()
                     }
-            except (json.JSONDecodeError, TypeError) as e:
+            except (json.JSONDecodeError, TypeError):
                 # Corrupted catalog, start fresh
                 self._data = CatalogData()
 

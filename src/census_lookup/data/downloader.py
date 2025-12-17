@@ -1,6 +1,5 @@
 """Download TIGER/Line and Census data files."""
 
-import shutil
 import zipfile
 from pathlib import Path
 from typing import Callable, List, Optional

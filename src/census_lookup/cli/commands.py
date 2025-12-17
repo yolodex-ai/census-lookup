@@ -1,7 +1,6 @@
 """CLI commands for census-lookup."""
 
 import json
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -187,7 +186,7 @@ def download(states: tuple, download_all: bool):
             state_name = FIPS_STATES.get(state_fips, state)
             click.echo(f"\nDownloading data for {state_name} ({state_fips})...")
             manager.ensure_state_data(state_fips, show_progress=True)
-            click.echo(f"  Done.")
+            click.echo("  Done.")
         except Exception as e:
             click.echo(f"  Error: {e}", err=True)
 
@@ -203,7 +202,7 @@ def info():
 
     # Disk usage
     usage = manager.disk_usage()
-    click.echo(f"\nDisk usage:")
+    click.echo("\nDisk usage:")
     for category, size in usage.items():
         if category != "total":
             click.echo(f"  {category}: {_format_size(size)}")

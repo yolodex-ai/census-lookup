@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Set
 
 import geopandas as gpd
 import pandas as pd
-from tqdm import tqdm
 
 from census_lookup.core.geoid import GeoLevel
 from census_lookup.data.catalog import DataCatalog, DatasetInfo
@@ -491,7 +490,6 @@ class DataManager:
             raise DataNotAvailableError(state_fips, dataset_key)
 
         # Use DuckDB for efficient querying
-        geoid_length = geo_level.geoid_length
         var_list = ", ".join(variables)
 
         # Read available columns and select those that exist

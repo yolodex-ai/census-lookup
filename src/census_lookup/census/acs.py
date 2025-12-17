@@ -6,7 +6,7 @@ including income, education, employment, housing characteristics, and more.
 Reference: https://www.census.gov/data/developers/data-sets/acs-5year.html
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # ACS 5-Year Variable Definitions (2020)
 # Format: Table_ColumnE for estimates, Table_ColumnM for margins of error
