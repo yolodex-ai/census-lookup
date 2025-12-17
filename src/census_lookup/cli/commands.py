@@ -44,13 +44,19 @@ def cli():
     type=click.Choice(["json", "csv", "table"]),
     help="Output format",
 )
-def lookup(address: str, level: str, variables: tuple, output_format: str):
+@click.option(
+    "--no-download",
+    is_flag=True,
+    help="Don't auto-download missing data",
+)
+def lookup(address: str, level: str, variables: tuple, output_format: str, no_download: bool):
     """Look up census data for a single address."""
     geo_level = GeoLevel[level.upper()]
 
     lookup_instance = CensusLookup(
         geo_level=geo_level,
         variables=list(variables) if variables else None,
+        auto_download=not no_download,
     )
 
     result = lookup_instance.geocode(address)
@@ -107,12 +113,14 @@ def _print_result_table(result):
     type=click.Choice(["block", "block_group", "tract", "county"]),
 )
 @click.option("--variables", "-v", multiple=True, help="Census variables to include")
+@click.option("--no-download", is_flag=True, help="Don't auto-download missing data")
 def batch(
     input_file: str,
     output_file: str,
     address_column: str,
     level: str,
     variables: tuple,
+    no_download: bool,
 ):
     """Process a batch of addresses from CSV/Excel file."""
     input_path = Path(input_file)
@@ -133,6 +141,7 @@ def batch(
     lookup_instance = CensusLookup(
         geo_level=geo_level,
         variables=list(variables) if variables else None,
+        auto_download=not no_download,
     )
 
     results = lookup_instance.geocode_batch(
@@ -268,18 +277,18 @@ def clear(state: Optional[str]):
     type=click.Choice(["block", "block_group", "tract", "county"]),
 )
 @click.option("--variables", "-v", multiple=True, help="Census variables to include")
-def coords(lat: float, lon: float, level: str, variables: tuple):
+@click.option("--no-download", is_flag=True, help="Don't auto-download missing data")
+def coords(lat: float, lon: float, level: str, variables: tuple, no_download: bool):
     """Look up census data for coordinates (lat, lon)."""
     geo_level = GeoLevel[level.upper()]
 
     lookup_instance = CensusLookup(
         geo_level=geo_level,
         variables=list(variables) if variables else None,
+        auto_download=not no_download,
     )
 
     # Need to load states that might contain these coordinates
-    # For now, require explicit state loading or try common states
-    click.echo("Note: Coordinate lookup requires state data to be loaded.")
     click.echo("Attempting to find containing state...")
 
     result = lookup_instance.lookup_coordinates(lat, lon)
