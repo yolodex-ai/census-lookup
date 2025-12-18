@@ -60,7 +60,7 @@ class TIGERAddressMatcher:
         """Build indexes for fast street name lookup."""
         # Create normalized street name column
         self._features["_norm_name"] = self._features["FULLNAME"].apply(
-            lambda x: self._normalizer.normalize(str(x) if x else "", expand_abbreviations=False)
+            lambda x: self._normalizer.normalize(str(x) if x else "")
         )
 
         # Build dict: normalized_name -> list of row indices
@@ -71,17 +71,6 @@ class TIGERAddressMatcher:
             if name not in self._street_index:
                 self._street_index[name] = []
             self._street_index[name].append(idx)
-
-        # Build ZIP code index for faster filtering
-        self._zip_index: Dict[str, List[int]] = {}
-        for idx, row in self._features.iterrows():
-            for zip_col in ["ZIPL", "ZIPR"]:
-                zipcode = row.get(zip_col)
-                if zipcode:
-                    zipcode = str(zipcode).strip()
-                    if zipcode not in self._zip_index:
-                        self._zip_index[zipcode] = []
-                    self._zip_index[zipcode].append(idx)
 
     def geocode_parsed(self, parsed: ParsedAddress) -> GeocodingResult:
         """
@@ -103,9 +92,7 @@ class TIGERAddressMatcher:
 
         # Build normalized street name for matching
         # TIGER uses abbreviated format, so normalize without expansion
-        street_name = self._normalizer.normalize(
-            parsed.full_street_name, expand_abbreviations=False
-        )
+        street_name = self._normalizer.normalize(parsed.full_street_name)
 
         # Find matching segment
         result = self._find_segment(
@@ -136,7 +123,6 @@ class TIGERAddressMatcher:
             house_number=house_number,
             from_addr=from_addr,
             to_addr=to_addr,
-            side=side,
         )
 
         return GeocodingResult(
@@ -269,8 +255,6 @@ class TIGERAddressMatcher:
         house_number: int,
         from_addr: int,
         to_addr: int,
-        side: str,
-        offset_meters: float = 10.0,
     ) -> Point:
         """
         Interpolate address position along segment.
@@ -280,8 +264,6 @@ class TIGERAddressMatcher:
             house_number: Target house number
             from_addr: Start of address range
             to_addr: End of address range
-            side: "L" or "R" for left/right
-            offset_meters: Distance to offset from centerline (not implemented)
 
         Returns:
             Point at interpolated position

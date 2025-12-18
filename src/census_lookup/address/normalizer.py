@@ -381,17 +381,12 @@ class StreetNormalizer:
         "12TH": "TWELFTH",
     }
 
-    def normalize(
-        self,
-        street_name: str,
-        expand_abbreviations: bool = True,
-    ) -> str:
+    def normalize(self, street_name: str) -> str:
         """
         Normalize a street name for matching.
 
         Args:
             street_name: Street name to normalize
-            expand_abbreviations: Whether to expand abbreviations to full form
 
         Returns:
             Normalized uppercase street name
@@ -407,21 +402,6 @@ class StreetNormalizer:
 
         # Remove special characters except spaces and hyphens
         result = re.sub(r"[^\w\s\-]", "", result)
-
-        if expand_abbreviations:
-            # Expand directionals
-            words = result.split()
-            normalized_words = []
-            for word in words:
-                if word in self.DIRECTIONALS:
-                    normalized_words.append(self.DIRECTIONALS[word])
-                elif word in self.STREET_TYPES:
-                    normalized_words.append(self.STREET_TYPES[word])
-                elif word in self.ORDINALS:
-                    normalized_words.append(self.ORDINALS[word])
-                else:
-                    normalized_words.append(word)
-            result = " ".join(normalized_words)
 
         return result
 

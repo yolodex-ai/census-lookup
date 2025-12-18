@@ -73,24 +73,6 @@ class SpatialIndex:
         matches.sort(key=lambda x: x[1])
         return matches[0][0]
 
-    def lookup_coordinates(
-        self,
-        lat: float,
-        lon: float,
-    ) -> Optional[str]:
-        """
-        Look up GEOID for lat/lon coordinates.
-
-        Args:
-            lat: Latitude (decimal degrees)
-            lon: Longitude (decimal degrees)
-
-        Returns:
-            GEOID string if found, None otherwise
-        """
-        point = Point(lon, lat)  # Note: Shapely uses (x, y) = (lon, lat)
-        return self.lookup(point)
-
     def lookup_batch(
         self,
         points: gpd.GeoSeries,
@@ -129,8 +111,3 @@ class SpatialIndex:
         result = result.set_index("_idx").reindex(range(len(points)))
 
         return result[[self._geoid_col]].rename(columns={self._geoid_col: "GEOID"})
-
-    @property
-    def crs(self):
-        """Get coordinate reference system."""
-        return self._polygons.crs

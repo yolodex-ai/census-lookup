@@ -37,31 +37,17 @@ class DuckDBEngine:
         self.conn.execute("INSTALL spatial")
         self.conn.execute("LOAD spatial")
 
-    def close(self) -> None:
-        """Close the DuckDB connection."""
-        self.conn.close()
-
-    def __enter__(self) -> "DuckDBEngine":
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.close()
-
-    def query(self, sql: str, params: Optional[dict] = None) -> pd.DataFrame:
+    def query(self, sql: str) -> pd.DataFrame:
         """
         Execute a SQL query and return results as DataFrame.
 
         Args:
             sql: SQL query string
-            params: Optional parameters for parameterized queries
 
         Returns:
             DataFrame with query results
         """
-        if params:
-            result = self.conn.execute(sql, params)
-        else:
-            result = self.conn.execute(sql)
+        result = self.conn.execute(sql)
         return result.fetchdf()
 
     def get_census_parquet_path(self, state_fips: str) -> Path:

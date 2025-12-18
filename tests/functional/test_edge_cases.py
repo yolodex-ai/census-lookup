@@ -39,6 +39,21 @@ class TestMatcherEdgeCases:
         assert not result.is_matched
         assert result.match_type in ["no_match", "parse_error"]
 
+    async def test_address_with_repeated_labels(self, mock_census_http, isolated_data_dir):
+        """Address with repeated labels (multiple unit types) still parses."""
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # Address with multiple unit designators triggers RepeatedLabelError
+        # which should be handled gracefully via parse() fallback
+        result = await lookup.geocode("123 Main St Apt 1 Suite 2, Washington, DC")
+
+        # Should either match or return no_match, not crash
+        assert result.match_type in ["interpolated", "no_match", "parse_error"]
+
     async def test_address_with_empty_street_in_features(self, mock_census_http, isolated_data_dir):
         """Address features with empty street names are skipped."""
         lookup = CensusLookup(
