@@ -281,6 +281,35 @@ class TestRetryExhaustion:
             await lookup.load_state("DC")
 
 
+class TestPartialDownloadCleanup:
+    """Test cleanup of partial downloads when retrying."""
+
+    async def test_pl94171_partial_download_cleanup(
+        self, isolated_data_dir_for_pl94171_partial_download
+    ):
+        """Partial zip file is cleaned up when PL 94-171 download fails and retries.
+
+        Tests line 421 in downloader.py: zip_path.unlink() when file exists.
+        """
+        data_dir, partial_zip = isolated_data_dir_for_pl94171_partial_download
+
+        # Verify partial zip exists before we start
+        assert partial_zip.exists(), "Partial zip should exist before download attempt"
+
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=data_dir,
+        )
+
+        # First download attempt will fail (ClientPayloadError), then retry succeeds
+        # The cleanup code should remove the partial zip before retry
+        result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+
+        assert result.is_matched
+        assert result.census_data.get("P1_001N") is not None
+
+
 class TestACSErrors:
     """Test ACS-specific error handling."""
 

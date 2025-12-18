@@ -1245,3 +1245,77 @@ def isolated_data_dir_for_pl94171_connection_errors(
     (data_dir / "census" / "acs").mkdir(parents=True)
     (data_dir / "temp").mkdir(parents=True)
     return data_dir
+
+
+@pytest.fixture
+def mock_census_http_pl94171_partial_then_success() -> Generator[aioresponses, None, None]:
+    """Mock PL 94-171 that fails first attempt (after writing partial file), then succeeds.
+
+    This tests the cleanup code path when a download fails and a partial
+    file already exists on disk (line 421 in downloader.py).
+    """
+    import aiohttp
+
+    blocks_gdf = create_dc_blocks_gdf()
+    blocks_zip = create_shapefile_zip(blocks_gdf, f"tl_2020_{DC_STATE_FIPS}_tabblock20")
+    addrfeat_gdf = create_dc_addrfeat_gdf()
+    addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
+    census_df = create_dc_census_df()
+    pl94171_zip = create_pl94171_zip("dc", census_df)
+
+    with aioresponses() as mocked:
+        # Blocks and addrfeat succeed
+        blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+        mocked.get(blocks_pattern, body=blocks_zip, repeat=True)
+
+        addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
+        mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+        # PL 94-171: first attempt fails with payload error (simulating partial download)
+        # This exception type is raised when reading response content fails mid-stream
+        pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+        mocked.get(pl_pattern, exception=aiohttp.ClientPayloadError("Connection lost"))
+        # Second attempt succeeds - include Content-Length header to trigger progress bar code
+        mocked.get(
+            pl_pattern,
+            body=pl94171_zip,
+            headers={"Content-Length": str(len(pl94171_zip))},
+        )
+
+        # ACS succeeds
+        def acs_callback(url, **kwargs):
+            return CallbackResult(
+                status=200,
+                payload=[
+                    ["GEO_ID", "NAME", "B19013_001E", "state", "county", "tract"],
+                    [f"1400000US{TEST_TRACT_GEOID}", "Test", "75000", "11", "001", "006202"],
+                ],
+            )
+
+        acs_pattern = re.compile(r".*api\.census\.gov/data/\d+/acs/acs5.*")
+        mocked.get(acs_pattern, callback=acs_callback, repeat=True)
+
+        yield mocked
+
+
+@pytest.fixture
+def isolated_data_dir_for_pl94171_partial_download(
+    tmp_path: Path, mock_census_http_pl94171_partial_then_success
+) -> tuple[Path, Path]:
+    """Create data directory for partial download test.
+
+    Returns the data_dir and path where the partial zip will be created.
+    """
+    data_dir = tmp_path / "census-lookup"
+    data_dir.mkdir()
+    (data_dir / "tiger" / "blocks").mkdir(parents=True)
+    (data_dir / "tiger" / "addrfeat").mkdir(parents=True)
+    (data_dir / "census" / "pl94171").mkdir(parents=True)
+    (data_dir / "census" / "acs").mkdir(parents=True)
+    (data_dir / "temp").mkdir(parents=True)
+
+    # Pre-create a partial zip file that should be cleaned up on retry
+    partial_zip = data_dir / "census" / "pl94171" / "pl94171_11.zip"
+    partial_zip.write_bytes(b"partial download content - should be deleted")
+
+    return data_dir, partial_zip
