@@ -110,7 +110,7 @@ class TIGERDownloader:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
-        if self._session is None or self._session.closed:
+        if self._session is None:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
@@ -120,8 +120,9 @@ class TIGERDownloader:
 
     async def close(self):
         """Close the aiohttp session."""
-        if self._session and not self._session.closed:
+        if self._session:
             await self._session.close()
+            self._session = None
 
     async def download_blocks(
         self,
@@ -291,8 +292,7 @@ class TIGERDownloader:
 
             with open(dest_path, "wb") as f:
                 async for chunk in response.content.iter_chunked(chunk_size):
-                    if chunk:
-                        f.write(chunk)
+                    f.write(chunk)
 
         return dest_path
 
@@ -321,7 +321,7 @@ class CensusDataDownloader:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
-        if self._session is None or self._session.closed:
+        if self._session is None:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
@@ -331,8 +331,9 @@ class CensusDataDownloader:
 
     async def close(self):
         """Close the aiohttp session."""
-        if self._session and not self._session.closed:
+        if self._session:
             await self._session.close()
+            self._session = None
 
     async def download_pl94171_for_state(
         self,
@@ -482,7 +483,7 @@ class ACSDataDownloader:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
-        if self._session is None or self._session.closed:
+        if self._session is None:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
@@ -492,8 +493,9 @@ class ACSDataDownloader:
 
     async def close(self):
         """Close the aiohttp session."""
-        if self._session and not self._session.closed:
+        if self._session:
             await self._session.close()
+            self._session = None
 
     @property
     def api_base(self) -> str:

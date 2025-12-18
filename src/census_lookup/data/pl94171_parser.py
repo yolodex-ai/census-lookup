@@ -12,7 +12,7 @@ Reference: https://www.census.gov/programs-surveys/decennial-census/about/rdo/su
 
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, cast
 
 import pandas as pd
 
@@ -65,7 +65,7 @@ GEO_COLUMNS_POSITIONS = {
 
 def parse_pl94171_zip(
     zip_path: Path,
-    variables: Optional[List[str]] = None,
+    variables: List[str],
     summary_level: str = "750",  # Default to block level
 ) -> pd.DataFrame:
     """
@@ -82,10 +82,7 @@ def parse_pl94171_zip(
     with zipfile.ZipFile(zip_path, "r") as zf:
         # Find state abbreviation from file names inside the zip
         filenames = zf.namelist()
-        geo_file = next((f for f in filenames if f.endswith("geo2020.pl")), None)
-        if not geo_file:
-            raise ValueError(f"No geo file found in {zip_path}")
-
+        geo_file = next(f for f in filenames if f.endswith("geo2020.pl"))
         state_abbrev = geo_file[:2].lower()
 
         # Read geographic header to get LOGRECNO -> GEOID mapping
@@ -107,13 +104,8 @@ def parse_pl94171_zip(
     result = geo_df.merge(data_df, on="LOGRECNO", how="inner")
 
     # Select only requested variables
-    if variables:
-        keep_cols = ["GEOID"] + [v for v in variables if v in result.columns]
-        result = cast(pd.DataFrame, result[keep_cols])
-    else:
-        # Drop header columns, keep GEOID and all data columns
-        drop_cols = ["LOGRECNO", "FILEID", "STUSAB", "CHARESSION", "CIESSION", "CHAESSION"]
-        result = result.drop(columns=[c for c in drop_cols if c in result.columns])
+    keep_cols = ["GEOID"] + [v for v in variables if v in result.columns]
+    result = cast(pd.DataFrame, result[keep_cols])
 
     return result
 

@@ -1,7 +1,7 @@
 """Convert shapefiles to GeoParquet format."""
 
 from pathlib import Path
-from typing import Any, List, Literal, Optional, cast
+from typing import Any, List, Literal, cast
 
 import geopandas as gpd
 import pandas as pd
@@ -34,7 +34,7 @@ class GeoParquetConverter:
         self,
         shapefile_dir: Path,
         output_path: Path,
-        columns: Optional[List[str]] = None,
+        columns: List[str],
     ) -> Path:
         """
         Convert a shapefile to GeoParquet.
@@ -42,7 +42,7 @@ class GeoParquetConverter:
         Args:
             shapefile_dir: Directory containing .shp file (from download extraction)
             output_path: Output parquet path
-            columns: Columns to include (None for all)
+            columns: Columns to include (geometry always included)
 
         Returns:
             Path to output parquet file
@@ -53,12 +53,11 @@ class GeoParquetConverter:
 
         gdf = gpd.read_file(shapefile_path)
 
-        if columns:
-            # Always include geometry
-            columns = list(set(columns) | {"geometry"})
-            # Filter to existing columns
-            existing_cols = [c for c in columns if c in gdf.columns]
-            gdf = gdf[existing_cols]
+        # Always include geometry
+        columns = list(set(columns) | {"geometry"})
+        # Filter to existing columns
+        existing_cols = [c for c in columns if c in gdf.columns]
+        gdf = gdf[existing_cols]
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # Cast to Any for compression - zstd supported but not in stubs
@@ -196,8 +195,7 @@ class GeoParquetConverter:
         df = pd.read_csv(csv_path, dtype={geoid_column: str})
 
         # Clean up GEO_ID format (Census API returns "1000000US{GEOID}")
-        if geoid_column in df.columns:
-            df["GEOID"] = df[geoid_column].str.extract(r"(\d+)$")
+        df["GEOID"] = df[geoid_column].str.extract(r"(\d+)$")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output_path, compression=self.compression)
