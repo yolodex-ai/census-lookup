@@ -180,17 +180,17 @@ class DataManager:
 
             # Merge into single state file
             state_output = self.tiger_dir / "addrfeat" / f"{state_fips}.parquet"
-            if parquet_files:
-                self.converter.merge_county_files(parquet_files, state_output)
+            assert parquet_files, f"No address feature files found for state {state_fips}"
+            self.converter.merge_county_files(parquet_files, state_output)
 
-                # Register in catalog
-                info = DatasetInfo.create(
-                    dataset_type="addrfeat",
-                    state_fips=state_fips,
-                    file_path=state_output,
-                    source_url=TIGER_URLS["addrfeat"].format(county_fips="*"),
-                )
-                self.catalog.register(info)
+            # Register in catalog
+            info = DatasetInfo.create(
+                dataset_type="addrfeat",
+                state_fips=state_fips,
+                file_path=state_output,
+                source_url=TIGER_URLS["addrfeat"].format(county_fips="*"),
+            )
+            self.catalog.register(info)
 
             # Clean up temp
             for shp_dir in county_files:
