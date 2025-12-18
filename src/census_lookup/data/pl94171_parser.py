@@ -12,10 +12,9 @@ Reference: https://www.census.gov/programs-surveys/decennial-census/about/rdo/su
 
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 import pandas as pd
-
 
 # Summary level codes for different geographic levels
 SUMMARY_LEVELS = {
@@ -110,7 +109,7 @@ def parse_pl94171_zip(
     # Select only requested variables
     if variables:
         keep_cols = ["GEOID"] + [v for v in variables if v in result.columns]
-        result = result[keep_cols]
+        result = cast(pd.DataFrame, result[keep_cols])
     else:
         # Drop header columns, keep GEOID and all data columns
         drop_cols = ["LOGRECNO", "FILEID", "STUSAB", "CHARESSION", "CIESSION", "CHAESSION"]
@@ -137,7 +136,7 @@ def _parse_geo_file(
             logrecno = parts[GEO_COLUMNS_POSITIONS["LOGRECNO"]]
             geoid = parts[GEO_COLUMNS_POSITIONS["GEOID"]]
 
-            # Extract just the numeric GEOID (e.g., "110010001011000" from "7500000US110010001011000")
+            # Extract numeric GEOID (e.g., "110010001011000" from "7500000US...")
             if "US" in geoid:
                 geoid = geoid.split("US")[1]
 
@@ -191,16 +190,57 @@ def get_pl94171_url(state_fips: str) -> str:
 def _fips_to_abbrev(state_fips: str) -> str:
     """Convert state FIPS code to lowercase 2-letter abbreviation."""
     FIPS_TO_ABBREV: Dict[str, str] = {
-        "01": "al", "02": "ak", "04": "az", "05": "ar", "06": "ca",
-        "08": "co", "09": "ct", "10": "de", "11": "dc", "12": "fl",
-        "13": "ga", "15": "hi", "16": "id", "17": "il", "18": "in",
-        "19": "ia", "20": "ks", "21": "ky", "22": "la", "23": "me",
-        "24": "md", "25": "ma", "26": "mi", "27": "mn", "28": "ms",
-        "29": "mo", "30": "mt", "31": "ne", "32": "nv", "33": "nh",
-        "34": "nj", "35": "nm", "36": "ny", "37": "nc", "38": "nd",
-        "39": "oh", "40": "ok", "41": "or", "42": "pa", "44": "ri",
-        "45": "sc", "46": "sd", "47": "tn", "48": "tx", "49": "ut",
-        "50": "vt", "51": "va", "53": "wa", "54": "wv", "55": "wi",
-        "56": "wy", "72": "pr",
+        "01": "al",
+        "02": "ak",
+        "04": "az",
+        "05": "ar",
+        "06": "ca",
+        "08": "co",
+        "09": "ct",
+        "10": "de",
+        "11": "dc",
+        "12": "fl",
+        "13": "ga",
+        "15": "hi",
+        "16": "id",
+        "17": "il",
+        "18": "in",
+        "19": "ia",
+        "20": "ks",
+        "21": "ky",
+        "22": "la",
+        "23": "me",
+        "24": "md",
+        "25": "ma",
+        "26": "mi",
+        "27": "mn",
+        "28": "ms",
+        "29": "mo",
+        "30": "mt",
+        "31": "ne",
+        "32": "nv",
+        "33": "nh",
+        "34": "nj",
+        "35": "nm",
+        "36": "ny",
+        "37": "nc",
+        "38": "nd",
+        "39": "oh",
+        "40": "ok",
+        "41": "or",
+        "42": "pa",
+        "44": "ri",
+        "45": "sc",
+        "46": "sd",
+        "47": "tn",
+        "48": "tx",
+        "49": "ut",
+        "50": "vt",
+        "51": "va",
+        "53": "wa",
+        "54": "wv",
+        "55": "wi",
+        "56": "wy",
+        "72": "pr",
     }
     return FIPS_TO_ABBREV.get(state_fips, state_fips.lower())

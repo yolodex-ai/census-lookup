@@ -9,8 +9,8 @@ Note: ACS data is available at tract level and above (not block level).
 from census_lookup import (
     CensusLookup,
     GeoLevel,
-    list_acs_variable_groups,
     get_acs_variables_for_group,
+    list_acs_variable_groups,
 )
 
 # Show available ACS variable groups

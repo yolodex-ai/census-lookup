@@ -20,11 +20,15 @@ class TestCLILookup:
     def test_lookup_output(self):
         """Look up address with JSON output."""
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "lookup",
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "-v", "P1_001N",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "lookup",
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "-v",
+                "P1_001N",
+            ],
+        )
 
         assert result.exit_code == 0, result.output
         # Extract JSON from output (may have download messages before it)
@@ -42,12 +46,17 @@ class TestCLILookup:
         runner = CliRunner()
 
         for level in ["block", "tract", "county"]:
-            result = runner.invoke(cli, [
-                "lookup",
-                "1600 Pennsylvania Avenue NW, Washington, DC",
-                "-l", level,
-                "-v", "P1_001N",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "lookup",
+                    "1600 Pennsylvania Avenue NW, Washington, DC",
+                    "-l",
+                    level,
+                    "-v",
+                    "P1_001N",
+                ],
+            )
 
             assert result.exit_code == 0, f"{level}: {result.output}"
             data = json.loads(result.output)
@@ -66,22 +75,29 @@ class TestCLIBatch:
             input_path = Path(tmpdir) / "input.csv"
             output_path = Path(tmpdir) / "output.csv"
 
-            df = pd.DataFrame({
-                "addr": [
-                    "1600 Pennsylvania Avenue NW, Washington, DC",
-                    "100 Maryland Ave SW, Washington, DC",
-                ]
-            })
+            df = pd.DataFrame(
+                {
+                    "addr": [
+                        "1600 Pennsylvania Avenue NW, Washington, DC",
+                        "100 Maryland Ave SW, Washington, DC",
+                    ]
+                }
+            )
             df.to_csv(input_path, index=False)
 
             # Run batch
-            result = runner.invoke(cli, [
-                "batch",
-                str(input_path),
-                str(output_path),
-                "-a", "addr",
-                "-l", "tract",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "batch",
+                    str(input_path),
+                    str(output_path),
+                    "-a",
+                    "addr",
+                    "-l",
+                    "tract",
+                ],
+            )
 
             assert result.exit_code == 0, result.output
             assert output_path.exists()
@@ -99,17 +115,19 @@ class TestCLIBatch:
             input_path = Path(tmpdir) / "input.csv"
             output_path = Path(tmpdir) / "output.parquet"
 
-            df = pd.DataFrame({
-                "address": ["1600 Pennsylvania Avenue NW, Washington, DC"]
-            })
+            df = pd.DataFrame({"address": ["1600 Pennsylvania Avenue NW, Washington, DC"]})
             df.to_csv(input_path, index=False)
 
-            result = runner.invoke(cli, [
-                "batch",
-                str(input_path),
-                str(output_path),
-                "-a", "address",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "batch",
+                    str(input_path),
+                    str(output_path),
+                    "-a",
+                    "address",
+                ],
+            )
 
             assert result.exit_code == 0, result.output
             assert output_path.exists()
@@ -125,12 +143,16 @@ class TestCLIBatch:
             df = pd.DataFrame({"some_column": ["test"]})
             df.to_csv(input_path, index=False)
 
-            result = runner.invoke(cli, [
-                "batch",
-                str(input_path),
-                str(output_path),
-                "-a", "nonexistent",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "batch",
+                    str(input_path),
+                    str(output_path),
+                    "-a",
+                    "nonexistent",
+                ],
+            )
 
             assert result.exit_code != 0
             assert "not found" in result.output
@@ -182,8 +204,8 @@ class TestCLIVariables:
         assert result.exit_code == 0, result.output
         assert "H1_001N" in result.output
         # P1 variables should not appear when filtering by H1
-        lines = result.output.split('\n')
-        variable_lines = [line for line in lines if line.startswith('P1_')]
+        lines = result.output.split("\n")
+        variable_lines = [line for line in lines if line.startswith("P1_")]
         assert len(variable_lines) == 0
 
 
@@ -210,13 +232,18 @@ class TestCLICoords:
 
         # Use positive lon for testing (somewhere in Pacific, won't match but tests the command)
         # We test with DC coordinates that are positive in format
-        result = runner.invoke(cli, [
-            "coords",
-            "-l", "tract",
-            "-v", "P1_001N",
-            "38.8977",  # lat
-            "77.0365",  # lon (using positive - won't find data but tests command)
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "coords",
+                "-l",
+                "tract",
+                "-v",
+                "P1_001N",
+                "38.8977",  # lat
+                "77.0365",  # lon (using positive - won't find data but tests command)
+            ],
+        )
 
         # May succeed or fail depending on data availability
         # but should at least run without CLI parsing errors
@@ -228,14 +255,19 @@ class TestCLICoords:
 
         # Use actual DC coordinates (negative longitude)
         # Use -- to indicate end of options so -77 is not parsed as flag
-        result = runner.invoke(cli, [
-            "coords",
-            "-l", "tract",
-            "-v", "P1_001N",
-            "--",
-            "38.8977",   # lat
-            "-77.0365",  # lon (proper negative for western hemisphere)
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "coords",
+                "-l",
+                "tract",
+                "-v",
+                "P1_001N",
+                "--",
+                "38.8977",  # lat
+                "-77.0365",  # lon (proper negative for western hemisphere)
+            ],
+        )
 
         # Should find DC data
         assert result.exit_code == 0
@@ -270,10 +302,13 @@ class TestCLIEdgeCases:
     def test_lookup_no_match(self):
         """Look up invalid address shows no match message."""
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "lookup",
-            "invalid address without state",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "lookup",
+                "invalid address without state",
+            ],
+        )
 
         assert result.exit_code == 0
         # Should show no match in JSON output
@@ -289,12 +324,16 @@ class TestCLIEdgeCases:
 
             input_path.write_text("some data")
 
-            result = runner.invoke(cli, [
-                "batch",
-                str(input_path),
-                str(output_path),
-                "-a", "address",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "batch",
+                    str(input_path),
+                    str(output_path),
+                    "-a",
+                    "address",
+                ],
+            )
 
             assert result.exit_code != 0
             assert "Unsupported file format" in result.output
@@ -307,17 +346,19 @@ class TestCLIEdgeCases:
             input_path = Path(tmpdir) / "input.csv"
             output_path = Path(tmpdir) / "output.unknown"
 
-            df = pd.DataFrame({
-                "addr": ["1600 Pennsylvania Avenue NW, Washington, DC"]
-            })
+            df = pd.DataFrame({"addr": ["1600 Pennsylvania Avenue NW, Washington, DC"]})
             df.to_csv(input_path, index=False)
 
-            result = runner.invoke(cli, [
-                "batch",
-                str(input_path),
-                str(output_path),
-                "-a", "addr",
-            ])
+            result = runner.invoke(
+                cli,
+                [
+                    "batch",
+                    str(input_path),
+                    str(output_path),
+                    "-a",
+                    "addr",
+                ],
+            )
 
             assert result.exit_code == 0, result.output
             assert output_path.exists()
@@ -393,14 +434,19 @@ class TestCLICoordsWithPreloadedData:
         assert result.exit_code == 0, result.output
 
         # Now coords should find data
-        result = runner.invoke(cli, [
-            "coords",
-            "-l", "tract",
-            "-v", "P1_001N",
-            "--",
-            "38.8977",
-            "-77.0365",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "coords",
+                "-l",
+                "tract",
+                "-v",
+                "P1_001N",
+                "--",
+                "38.8977",
+                "-77.0365",
+            ],
+        )
 
         assert result.exit_code == 0
         # Should output JSON with geoid
@@ -411,13 +457,17 @@ class TestCLICoordsWithPreloadedData:
         monkeypatch.setenv("HOME", str(tmp_path))
 
         runner = CliRunner()
-        result = runner.invoke(cli, [
-            "coords",
-            "-l", "tract",
-            "--",
-            "38.8977",
-            "-77.0365",
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "coords",
+                "-l",
+                "tract",
+                "--",
+                "38.8977",
+                "-77.0365",
+            ],
+        )
 
         assert result.exit_code == 0
         assert "No states downloaded" in result.output

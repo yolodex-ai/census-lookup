@@ -44,38 +44,44 @@ def create_dc_blocks_gdf() -> gpd.GeoDataFrame:
 
     # Main block containing the White House
     # Create a polygon that definitely contains WHITE_HOUSE_LON, WHITE_HOUSE_LAT
-    main_block = Polygon([
-        (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT - 0.005),
-        (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT - 0.005),
-        (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT + 0.005),
-        (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT + 0.005),
-    ])
+    main_block = Polygon(
+        [
+            (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT - 0.005),
+            (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT - 0.005),
+            (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT + 0.005),
+            (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT + 0.005),
+        ]
+    )
     blocks.append(main_block)
     geoids.append(TEST_BLOCK_GEOID)
 
     # Adjacent blocks for realism
     for i, (dx, dy) in enumerate([(-0.01, 0), (0.01, 0), (0, -0.01), (0, 0.01)]):
-        block = Polygon([
-            (WHITE_HOUSE_LON + dx - 0.005, WHITE_HOUSE_LAT + dy - 0.005),
-            (WHITE_HOUSE_LON + dx + 0.005, WHITE_HOUSE_LAT + dy - 0.005),
-            (WHITE_HOUSE_LON + dx + 0.005, WHITE_HOUSE_LAT + dy + 0.005),
-            (WHITE_HOUSE_LON + dx - 0.005, WHITE_HOUSE_LAT + dy + 0.005),
-        ])
+        block = Polygon(
+            [
+                (WHITE_HOUSE_LON + dx - 0.005, WHITE_HOUSE_LAT + dy - 0.005),
+                (WHITE_HOUSE_LON + dx + 0.005, WHITE_HOUSE_LAT + dy - 0.005),
+                (WHITE_HOUSE_LON + dx + 0.005, WHITE_HOUSE_LAT + dy + 0.005),
+                (WHITE_HOUSE_LON + dx - 0.005, WHITE_HOUSE_LAT + dy + 0.005),
+            ]
+        )
         blocks.append(block)
         # Different block numbers
-        geoids.append(f"11001006202100{i+1}")
+        geoids.append(f"11001006202100{i + 1}")
 
     # Add an L-shaped (concave) block to test bbox vs actual polygon intersection
     # The "notch" of the L is at the top-right corner
     # Point at (lon+0.024, lat+0.024) is in bbox but NOT in polygon
-    l_block = Polygon([
-        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.02),  # bottom-left
-        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.02),  # bottom-right
-        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.025),  # mid-right
-        (WHITE_HOUSE_LON + 0.025, WHITE_HOUSE_LAT + 0.025),  # notch inner
-        (WHITE_HOUSE_LON + 0.025, WHITE_HOUSE_LAT + 0.03),  # notch top
-        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.03),  # top-left
-    ])
+    l_block = Polygon(
+        [
+            (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.02),  # bottom-left
+            (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.02),  # bottom-right
+            (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.025),  # mid-right
+            (WHITE_HOUSE_LON + 0.025, WHITE_HOUSE_LAT + 0.025),  # notch inner
+            (WHITE_HOUSE_LON + 0.025, WHITE_HOUSE_LAT + 0.03),  # notch top
+            (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.03),  # top-left
+        ]
+    )
     blocks.append(l_block)
     geoids.append("110010062021005")
 
@@ -100,141 +106,169 @@ def create_dc_addrfeat_gdf() -> gpd.GeoDataFrame:
     features = []
 
     # Pennsylvania Avenue segment containing 1600
-    penn_ave = LineString([
-        (WHITE_HOUSE_LON - 0.01, WHITE_HOUSE_LAT),
-        (WHITE_HOUSE_LON + 0.01, WHITE_HOUSE_LAT),
-    ])
-    features.append({
-        "LINEARID": "1101234567890",
-        "FULLNAME": "PENNSYLVANIA AVE NW",
-        "LFROMHN": "1500",
-        "LTOHN": "1698",
-        "RFROMHN": "1501",
-        "RTOHN": "1699",
-        "ZIPL": "20500",
-        "ZIPR": "20500",
-        "PARITYL": "E",
-        "PARITYR": "O",
-        "geometry": penn_ave,
-    })
+    penn_ave = LineString(
+        [
+            (WHITE_HOUSE_LON - 0.01, WHITE_HOUSE_LAT),
+            (WHITE_HOUSE_LON + 0.01, WHITE_HOUSE_LAT),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567890",
+            "FULLNAME": "PENNSYLVANIA AVE NW",
+            "LFROMHN": "1500",
+            "LTOHN": "1698",
+            "RFROMHN": "1501",
+            "RTOHN": "1699",
+            "ZIPL": "20500",
+            "ZIPR": "20500",
+            "PARITYL": "E",
+            "PARITYR": "O",
+            "geometry": penn_ave,
+        }
+    )
 
     # Maryland Avenue segment for batch testing
-    maryland_ave = LineString([
-        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT - 0.01),
-        (WHITE_HOUSE_LON, WHITE_HOUSE_LAT - 0.01),
-    ])
-    features.append({
-        "LINEARID": "1101234567891",
-        "FULLNAME": "MARYLAND AVE SW",
-        "LFROMHN": "1",
-        "LTOHN": "198",
-        "RFROMHN": "2",
-        "RTOHN": "199",
-        "ZIPL": "20024",
-        "ZIPR": "20024",
-        "PARITYL": "O",
-        "PARITYR": "E",
-        "geometry": maryland_ave,
-    })
+    maryland_ave = LineString(
+        [
+            (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT - 0.01),
+            (WHITE_HOUSE_LON, WHITE_HOUSE_LAT - 0.01),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567891",
+            "FULLNAME": "MARYLAND AVE SW",
+            "LFROMHN": "1",
+            "LTOHN": "198",
+            "RFROMHN": "2",
+            "RTOHN": "199",
+            "ZIPL": "20024",
+            "ZIPR": "20024",
+            "PARITYL": "O",
+            "PARITYR": "E",
+            "geometry": maryland_ave,
+        }
+    )
 
     # --- Edge case features ---
 
     # Feature with empty FULLNAME (tests line 70 skip)
-    empty_name_street = LineString([
-        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT),
-        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT),
-    ])
-    features.append({
-        "LINEARID": "1101234567892",
-        "FULLNAME": "",  # Empty street name - should be skipped
-        "LFROMHN": "100",
-        "LTOHN": "200",
-        "RFROMHN": "101",
-        "RTOHN": "201",
-        "ZIPL": "20500",
-        "ZIPR": "20500",
-        "PARITYL": "E",
-        "PARITYR": "O",
-        "geometry": empty_name_street,
-    })
+    empty_name_street = LineString(
+        [
+            (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT),
+            (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567892",
+            "FULLNAME": "",  # Empty street name - should be skipped
+            "LFROMHN": "100",
+            "LTOHN": "200",
+            "RFROMHN": "101",
+            "RTOHN": "201",
+            "ZIPL": "20500",
+            "ZIPR": "20500",
+            "PARITYL": "E",
+            "PARITYR": "O",
+            "geometry": empty_name_street,
+        }
+    )
 
     # Feature with invalid house number ranges (non-numeric)
     # Tests lines 203-204 and 218-219 (ValueError/TypeError)
-    invalid_range_street = LineString([
-        (WHITE_HOUSE_LON - 0.03, WHITE_HOUSE_LAT + 0.01),
-        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.01),
-    ])
-    features.append({
-        "LINEARID": "1101234567893",
-        "FULLNAME": "CONSTITUTION AVE NW",
-        "LFROMHN": "INVALID",  # Non-numeric - triggers except clause
-        "LTOHN": "INVALID",
-        "RFROMHN": "BAD",
-        "RTOHN": "BAD",
-        "ZIPL": "20001",
-        "ZIPR": "20001",
-        "PARITYL": "E",
-        "PARITYR": "O",
-        "geometry": invalid_range_street,
-    })
+    invalid_range_street = LineString(
+        [
+            (WHITE_HOUSE_LON - 0.03, WHITE_HOUSE_LAT + 0.01),
+            (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.01),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567893",
+            "FULLNAME": "CONSTITUTION AVE NW",
+            "LFROMHN": "INVALID",  # Non-numeric - triggers except clause
+            "LTOHN": "INVALID",
+            "RFROMHN": "BAD",
+            "RTOHN": "BAD",
+            "ZIPL": "20001",
+            "ZIPR": "20001",
+            "PARITYL": "E",
+            "PARITYR": "O",
+            "geometry": invalid_range_street,
+        }
+    )
 
     # Another Constitution Ave segment with valid ranges for fallback matching
     # but with unknown parity value (tests line 250)
-    constitution_valid = LineString([
-        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.01),
-        (WHITE_HOUSE_LON - 0.01, WHITE_HOUSE_LAT + 0.01),
-    ])
-    features.append({
-        "LINEARID": "1101234567894",
-        "FULLNAME": "CONSTITUTION AVE NW",
-        "LFROMHN": "500",
-        "LTOHN": "698",
-        "RFROMHN": "501",
-        "RTOHN": "699",
-        "ZIPL": "20001",
-        "ZIPR": "20001",
-        "PARITYL": "X",  # Unknown parity - triggers else branch line 250
-        "PARITYR": "X",
-        "geometry": constitution_valid,
-    })
+    constitution_valid = LineString(
+        [
+            (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.01),
+            (WHITE_HOUSE_LON - 0.01, WHITE_HOUSE_LAT + 0.01),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567894",
+            "FULLNAME": "CONSTITUTION AVE NW",
+            "LFROMHN": "500",
+            "LTOHN": "698",
+            "RFROMHN": "501",
+            "RTOHN": "699",
+            "ZIPL": "20001",
+            "ZIPR": "20001",
+            "PARITYL": "X",  # Unknown parity - triggers else branch line 250
+            "PARITYR": "X",
+            "geometry": constitution_valid,
+        }
+    )
 
     # Segment with equal from/to range (tests line 273: to_addr == from_addr)
-    single_addr_street = LineString([
-        (WHITE_HOUSE_LON + 0.01, WHITE_HOUSE_LAT + 0.02),
-        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.02),
-    ])
-    features.append({
-        "LINEARID": "1101234567895",
-        "FULLNAME": "SINGLE ST NW",
-        "LFROMHN": "100",
-        "LTOHN": "100",  # Same as from - single address
-        "RFROMHN": "101",
-        "RTOHN": "101",
-        "ZIPL": "20002",
-        "ZIPR": "20002",
-        "PARITYL": "E",
-        "PARITYR": "O",
-        "geometry": single_addr_street,
-    })
+    single_addr_street = LineString(
+        [
+            (WHITE_HOUSE_LON + 0.01, WHITE_HOUSE_LAT + 0.02),
+            (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.02),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567895",
+            "FULLNAME": "SINGLE ST NW",
+            "LFROMHN": "100",
+            "LTOHN": "100",  # Same as from - single address
+            "RFROMHN": "101",
+            "RTOHN": "101",
+            "ZIPL": "20002",
+            "ZIPR": "20002",
+            "PARITYL": "E",
+            "PARITYR": "O",
+            "geometry": single_addr_street,
+        }
+    )
 
     # Segment with parity=B (both) to test line 239
-    both_parity_street = LineString([
-        (WHITE_HOUSE_LON - 0.03, WHITE_HOUSE_LAT + 0.02),
-        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.02),
-    ])
-    features.append({
-        "LINEARID": "1101234567896",
-        "FULLNAME": "BOTH ST NW",
-        "LFROMHN": "1",
-        "LTOHN": "99",
-        "RFROMHN": "2",
-        "RTOHN": "100",
-        "ZIPL": "20003",
-        "ZIPR": "20003",
-        "PARITYL": "B",  # Both parities allowed - tests line 239
-        "PARITYR": "B",
-        "geometry": both_parity_street,
-    })
+    both_parity_street = LineString(
+        [
+            (WHITE_HOUSE_LON - 0.03, WHITE_HOUSE_LAT + 0.02),
+            (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.02),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567896",
+            "FULLNAME": "BOTH ST NW",
+            "LFROMHN": "1",
+            "LTOHN": "99",
+            "RFROMHN": "2",
+            "RTOHN": "100",
+            "ZIPL": "20003",
+            "ZIPR": "20003",
+            "PARITYL": "B",  # Both parities allowed - tests line 239
+            "PARITYR": "B",
+            "geometry": both_parity_street,
+        }
+    )
 
     # Segment to test right side parity failure (line 226->229):
     # - Left range: 200-298 EVEN only (PARITYL='E')
@@ -249,23 +283,27 @@ def create_dc_addrfeat_gdf() -> gpd.GeoDataFrame:
     # That won't work either. I need left to fail AND right to fail.
     #
     # Better approach: Left range is None, only right range exists with wrong parity
-    right_only_street = LineString([
-        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.01),
-        (WHITE_HOUSE_LON + 0.04, WHITE_HOUSE_LAT + 0.01),
-    ])
-    features.append({
-        "LINEARID": "1101234567897",
-        "FULLNAME": "RIGHTONLY ST NW",
-        "LFROMHN": None,  # No left side range
-        "LTOHN": None,
-        "RFROMHN": "301",
-        "RTOHN": "399",
-        "ZIPL": "20004",
-        "ZIPR": "20004",
-        "PARITYL": None,
-        "PARITYR": "O",  # Odd only on right side
-        "geometry": right_only_street,
-    })
+    right_only_street = LineString(
+        [
+            (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.01),
+            (WHITE_HOUSE_LON + 0.04, WHITE_HOUSE_LAT + 0.01),
+        ]
+    )
+    features.append(
+        {
+            "LINEARID": "1101234567897",
+            "FULLNAME": "RIGHTONLY ST NW",
+            "LFROMHN": None,  # No left side range
+            "LTOHN": None,
+            "RFROMHN": "301",
+            "RTOHN": "399",
+            "ZIPL": "20004",
+            "ZIPR": "20004",
+            "PARITYL": None,
+            "PARITYR": "O",  # Odd only on right side
+            "geometry": right_only_street,
+        }
+    )
 
     return gpd.GeoDataFrame(features, crs="EPSG:4269")
 
@@ -275,16 +313,18 @@ def create_dc_census_df() -> pd.DataFrame:
     # Create census data for all our test blocks (including L-shaped block)
     geoids = [TEST_BLOCK_GEOID] + [f"11001006202100{i}" for i in range(1, 6)]
 
-    return pd.DataFrame({
-        "GEOID": geoids,
-        "P1_001N": [150, 200, 180, 160, 190, 175],  # Total population
-        "P1_003N": [80, 100, 90, 85, 95, 88],       # White alone
-        "P1_004N": [40, 60, 50, 45, 55, 48],        # Black alone
-        "P2_002N": [30, 40, 35, 30, 40, 35],        # Hispanic
-        "H1_001N": [60, 80, 70, 65, 75, 68],        # Total housing units
-        "H1_002N": [55, 75, 65, 60, 70, 63],        # Occupied
-        "H1_003N": [5, 5, 5, 5, 5, 5],              # Vacant
-    })
+    return pd.DataFrame(
+        {
+            "GEOID": geoids,
+            "P1_001N": [150, 200, 180, 160, 190, 175],  # Total population
+            "P1_003N": [80, 100, 90, 85, 95, 88],  # White alone
+            "P1_004N": [40, 60, 50, 45, 55, 48],  # Black alone
+            "P2_002N": [30, 40, 35, 30, 40, 35],  # Hispanic
+            "H1_001N": [60, 80, 70, 65, 75, 68],  # Total housing units
+            "H1_002N": [55, 75, 65, 60, 70, 63],  # Occupied
+            "H1_003N": [5, 5, 5, 5, 5, 5],  # Vacant
+        }
+    )
 
 
 def create_pl94171_zip(state_abbrev: str, census_df: pd.DataFrame) -> bytes:
@@ -748,12 +788,14 @@ def create_invalid_blocks_gdf() -> gpd.GeoDataFrame:
     geoids = []
 
     # Block with invalid GEOID (only 10 digits instead of 15)
-    main_block = Polygon([
-        (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT - 0.005),
-        (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT - 0.005),
-        (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT + 0.005),
-        (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT + 0.005),
-    ])
+    main_block = Polygon(
+        [
+            (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT - 0.005),
+            (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT - 0.005),
+            (WHITE_HOUSE_LON + 0.005, WHITE_HOUSE_LAT + 0.005),
+            (WHITE_HOUSE_LON - 0.005, WHITE_HOUSE_LAT + 0.005),
+        ]
+    )
     blocks.append(main_block)
     geoids.append("1100100620")  # Invalid: only 10 digits
 
@@ -1161,3 +1203,45 @@ def isolated_data_dir_acs_nulls(tmp_path: Path, mock_census_http_acs_with_nulls)
     return data_dir
 
 
+@pytest.fixture
+def mock_census_http_pl94171_connection_errors() -> Generator[aioresponses, None, None]:
+    """Mock Census endpoints with PL 94-171 download failing with connection errors."""
+    import aiohttp
+
+    blocks_gdf = create_dc_blocks_gdf()
+    blocks_zip = create_shapefile_zip(blocks_gdf, f"tl_2020_{DC_STATE_FIPS}_tabblock20")
+    addrfeat_gdf = create_dc_addrfeat_gdf()
+    addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
+
+    with aioresponses() as mocked:
+        # Blocks download succeeds
+        blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+        mocked.get(blocks_pattern, body=blocks_zip, repeat=True)
+
+        # Address features download succeeds
+        addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
+        mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+        # PL 94-171 download fails with connection error (exhaust retries)
+        pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+        mocked.get(pl_pattern, exception=aiohttp.ClientConnectionError("Connection reset"))
+        mocked.get(pl_pattern, exception=aiohttp.ClientConnectionError("Connection reset"))
+        mocked.get(pl_pattern, exception=aiohttp.ClientConnectionError("Connection reset"))
+        mocked.get(pl_pattern, exception=aiohttp.ClientConnectionError("Connection reset"))
+
+        yield mocked
+
+
+@pytest.fixture
+def isolated_data_dir_for_pl94171_connection_errors(
+    tmp_path: Path, mock_census_http_pl94171_connection_errors
+) -> Path:
+    """Create isolated data directory for PL 94-171 connection error tests."""
+    data_dir = tmp_path / "census-lookup"
+    data_dir.mkdir()
+    (data_dir / "tiger" / "blocks").mkdir(parents=True)
+    (data_dir / "tiger" / "addrfeat").mkdir(parents=True)
+    (data_dir / "census" / "pl94171").mkdir(parents=True)
+    (data_dir / "census" / "acs").mkdir(parents=True)
+    (data_dir / "temp").mkdir(parents=True)
+    return data_dir

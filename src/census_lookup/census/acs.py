@@ -19,7 +19,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B01001_026E": "Female Population",
     "B01002_001E": "Median Age",
     "B01003_001E": "Total Population (alternate)",
-
     # Age Distribution (B01001)
     "B01001_003E": "Male Under 5 years",
     "B01001_004E": "Male 5 to 9 years",
@@ -44,7 +43,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B01001_023E": "Male 75 to 79 years",
     "B01001_024E": "Male 80 to 84 years",
     "B01001_025E": "Male 85 years and over",
-
     # Income (B19)
     "B19013_001E": "Median Household Income",
     "B19001_001E": "Households by Income - Total",
@@ -66,14 +64,12 @@ ACS_VARIABLES: Dict[str, str] = {
     "B19001_017E": "Households Income $200,000 or more",
     "B19301_001E": "Per Capita Income",
     "B19083_001E": "Gini Index of Income Inequality",
-
     # Poverty (B17)
     "B17001_001E": "Poverty Status - Total Population",
     "B17001_002E": "Below Poverty Level",
     "B17001_031E": "At or Above Poverty Level",
     "B17020_001E": "Poverty Status by Age - Total",
     "B17020_002E": "Poverty Status Under 6 years",
-
     # Education (B15)
     "B15003_001E": "Educational Attainment - Population 25+",
     "B15003_002E": "No schooling completed",
@@ -100,7 +96,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B15003_023E": "Master's degree",
     "B15003_024E": "Professional school degree",
     "B15003_025E": "Doctorate degree",
-
     # Employment (B23)
     "B23025_001E": "Employment Status - Population 16+",
     "B23025_002E": "In Labor Force",
@@ -109,14 +104,12 @@ ACS_VARIABLES: Dict[str, str] = {
     "B23025_005E": "Unemployed",
     "B23025_006E": "Armed Forces",
     "B23025_007E": "Not in Labor Force",
-
     # Occupation (C24)
     "C24010_001E": "Occupation - Civilian employed 16+",
     "C24010_002E": "Male Civilian employed 16+",
     "C24010_003E": "Male Management, business, science, arts",
     "C24010_038E": "Female Civilian employed 16+",
     "C24010_039E": "Female Management, business, science, arts",
-
     # Industry (C24)
     "C24030_001E": "Industry - Civilian employed 16+",
     "C24030_002E": "Agriculture, forestry, fishing, hunting, mining",
@@ -132,7 +125,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "C24030_012E": "Arts, entertainment, recreation, food services",
     "C24030_013E": "Other services",
     "C24030_014E": "Public administration",
-
     # Commute (B08)
     "B08301_001E": "Means of Transportation to Work - Total",
     "B08301_002E": "Car, truck, or van",
@@ -147,7 +139,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B08301_021E": "Worked from home",
     "B08303_001E": "Travel Time to Work - Total",
     "B08013_001E": "Aggregate Travel Time to Work (minutes)",
-
     # Housing (B25)
     "B25001_001E": "Total Housing Units",
     "B25002_001E": "Occupancy Status - Total",
@@ -173,7 +164,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B25071_001E": "Median Gross Rent as % of Household Income",
     "B25070_001E": "Gross Rent as % of Income - Total",
     "B25070_010E": "Gross Rent 50% or more of income",
-
     # Health Insurance (B27)
     "B27001_001E": "Health Insurance Coverage - Total",
     "B27001_004E": "Under 6 with health insurance",
@@ -183,7 +173,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B27010_033E": "Direct-purchase insurance",
     "B27010_050E": "Medicare",
     "B27010_066E": "Medicaid/means-tested public coverage",
-
     # Household Composition (B11)
     "B11001_001E": "Households - Total",
     "B11001_002E": "Family households",
@@ -194,7 +183,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B11001_008E": "Householder living alone",
     "B11016_001E": "Household Type by Size - Total",
     "B25010_001E": "Average Household Size",
-
     # Language (B16)
     "B16001_001E": "Language Spoken at Home - Population 5+",
     "B16001_002E": "Speak only English",
@@ -210,7 +198,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B16001_030E": "Speak other Asian/Pacific Islander",
     "B16001_033E": "Speak Arabic",
     "B16001_036E": "Speak other/unspecified language",
-
     # Nativity and Citizenship (B05)
     "B05001_001E": "Nativity and Citizenship - Total",
     "B05001_002E": "U.S. citizen, born in US",
@@ -218,7 +205,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B05001_004E": "U.S. citizen, born abroad of American parents",
     "B05001_005E": "U.S. citizen by naturalization",
     "B05001_006E": "Not a U.S. citizen",
-
     # Internet Access (B28)
     "B28002_001E": "Internet Access - Total Households",
     "B28002_002E": "With an Internet subscription",
@@ -230,7 +216,6 @@ ACS_VARIABLES: Dict[str, str] = {
     "B28003_001E": "Computer in Household - Total",
     "B28003_002E": "Has a computer",
     "B28003_004E": "No computer",
-
     # Vehicles Available (B25044)
     "B25044_001E": "Vehicles Available - Occupied Housing Units",
     "B25044_003E": "Owner-occupied - No vehicle",
@@ -306,7 +291,8 @@ ACS_VARIABLE_GROUPS: Dict[str, List[str]] = {
         "B25064_001E",
         "B25035_001E",  # Median year built
         "B25071_001E",  # Rent burden
-    ] + [f"B25024_{i:03d}E" for i in range(2, 12)],  # Units in structure
+    ]
+    + [f"B25024_{i:03d}E" for i in range(2, 12)],  # Units in structure
     "health_insurance": [
         "B27001_001E",  # Total
         "B27010_017E",  # Employer-based

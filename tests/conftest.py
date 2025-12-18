@@ -62,8 +62,16 @@ def _check_file_imports(filepath: Path) -> list[str]:
 
 
 def pytest_collect_file(parent, file_path):
-    """Check test files for internal imports during collection."""
+    """Check test files for internal imports during collection.
+
+    Unit tests (tests/unit/) are allowed to import internal modules.
+    Functional tests (tests/functional/) must only use the public API.
+    """
     if file_path.suffix == ".py" and file_path.name.startswith("test_"):
+        # Skip import checking for unit tests - they can access internal APIs
+        if "/unit/" in str(file_path) or "\\unit\\" in str(file_path):
+            return None
+
         errors = _check_file_imports(file_path)
         if errors:
             # Raise an error during collection to fail fast

@@ -3,7 +3,6 @@
 Tests initialization, state loading, and variable management through the public API.
 """
 
-
 from census_lookup import CensusLookup, GeoLevel
 
 

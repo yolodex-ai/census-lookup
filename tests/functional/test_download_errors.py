@@ -28,7 +28,6 @@ class TestHTTPErrors:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_404,
-
         )
 
         with pytest.raises(DownloadError) as exc_info:
@@ -43,7 +42,6 @@ class TestHTTPErrors:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_500,
-
         )
 
         # 500 errors get wrapped in DownloadError after retry exhaustion
@@ -58,7 +56,6 @@ class TestHTTPErrors:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_404,
-
         )
 
         with pytest.raises(DownloadError) as exc_info:
@@ -76,7 +73,6 @@ class TestDownloadRetries:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_retries,
-
         )
 
         # The mock is configured to fail twice then succeed
@@ -96,7 +92,6 @@ class TestConcurrentOperations:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-
         )
 
         # Pre-load to avoid race condition
@@ -108,10 +103,7 @@ class TestConcurrentOperations:
         ]
 
         # Start concurrent geocodes
-        tasks = [
-            asyncio.create_task(lookup.geocode(addr))
-            for addr in addresses
-        ]
+        tasks = [asyncio.create_task(lookup.geocode(addr)) for addr in addresses]
 
         results = await asyncio.gather(*tasks)
 
@@ -119,7 +111,6 @@ class TestConcurrentOperations:
         assert len(results) == 2
         # At least the first address should match
         assert results[0].is_matched
-
 
 
 class TestDataValidation:
@@ -131,7 +122,6 @@ class TestDataValidation:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_invalid_geoid,
-
         )
 
         with pytest.raises(ValueError, match="Invalid GEOID20"):
@@ -153,7 +143,6 @@ class TestConcurrentDownloadCoordination:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-
         )
 
         # Load state data first (single call)
@@ -166,10 +155,7 @@ class TestConcurrentDownloadCoordination:
             "1600 Pennsylvania Avenue NW, Washington, DC",
         ]
 
-        tasks = [
-            asyncio.create_task(lookup.geocode(addr))
-            for addr in addresses
-        ]
+        tasks = [asyncio.create_task(lookup.geocode(addr)) for addr in addresses]
 
         results = await asyncio.gather(*tasks)
 
@@ -195,7 +181,6 @@ class TestConcurrentDownloadCoordination:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-
         )
 
         # Load state (this tests the download path)
@@ -228,14 +213,12 @@ class TestConcurrentDownloadCoordination:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-
         )
 
         lookup2 = CensusLookup(
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-
         )
 
         # Start both load_state calls concurrently
@@ -265,15 +248,12 @@ class TestConcurrentDownloadCoordination:
 class TestRetryExhaustion:
     """Test that retries are exhausted properly before raising errors."""
 
-    async def test_connection_errors_exhaust_retries(
-        self, isolated_data_dir_for_connection_errors
-    ):
+    async def test_connection_errors_exhaust_retries(self, isolated_data_dir_for_connection_errors):
         """Connection errors exhaust all retries before raising DownloadError."""
         lookup = CensusLookup(
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_connection_errors,
-
         )
 
         # Should fail after exhausting retries
@@ -284,20 +264,33 @@ class TestRetryExhaustion:
         assert exc_info.value.status_code == 0
         assert "Connection" in str(exc_info.value) or "reset" in str(exc_info.value).lower()
 
+    async def test_pl94171_connection_errors_exhaust_retries(
+        self, isolated_data_dir_for_pl94171_connection_errors
+    ):
+        """PL 94-171 download connection errors exhaust retries and raise error."""
+        import aiohttp
+
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir_for_pl94171_connection_errors,
+        )
+
+        # Should fail after exhausting retries on PL 94-171 download
+        with pytest.raises(aiohttp.ClientConnectionError):
+            await lookup.load_state("DC")
+
 
 class TestACSErrors:
     """Test ACS-specific error handling."""
 
-    async def test_acs_invalid_variable_raises_error(
-        self, isolated_data_dir_for_acs_400
-    ):
+    async def test_acs_invalid_variable_raises_error(self, isolated_data_dir_for_acs_400):
         """Invalid ACS variable names result in DownloadError with helpful message."""
         lookup = CensusLookup(
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             acs_variables=["INVALID_VAR"],
             data_dir=isolated_data_dir_for_acs_400,
-
         )
 
         with pytest.raises(DownloadError) as exc_info:
@@ -316,7 +309,6 @@ class TestCacheHits:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-
         )
 
         # First load - downloads data
@@ -328,7 +320,6 @@ class TestCacheHits:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-
         )
 
         # This should not make HTTP requests - uses cached parquet files
@@ -398,7 +389,6 @@ class TestMultipleGeoLevels:
             geo_level=GeoLevel.BLOCK_GROUP,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-
         )
 
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
@@ -414,7 +404,6 @@ class TestMultipleGeoLevels:
             geo_level=GeoLevel.COUNTY,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-
         )
 
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
@@ -441,7 +430,6 @@ class TestAlreadyExtracted:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-
         )
 
         # Load state - should use pre-extracted data
@@ -457,11 +445,10 @@ class TestAlreadyExtracted:
 class TestClearCache:
     """Test clearing cached data."""
 
-    async def test_clear_state_deletes_files(
-        self, mock_census_http, tmp_path, monkeypatch
-    ):
+    async def test_clear_state_deletes_files(self, mock_census_http, tmp_path, monkeypatch):
         """Clearing a state removes its data files from disk."""
         from click.testing import CliRunner
+
         from census_lookup.cli.commands import cli
 
         # Set HOME so CLI uses our temp directory
@@ -518,6 +505,7 @@ class TestCorruptedCatalog:
 
         # Catalog should now be valid
         import json
+
         catalog_data = json.loads(catalog_path.read_text())
         assert "datasets" in catalog_data
 
@@ -545,5 +533,3 @@ class TestInvalidStateInAddress:
 
         # Should not crash, just return no match
         assert not result.is_matched
-
-

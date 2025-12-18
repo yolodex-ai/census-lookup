@@ -39,11 +39,13 @@ class TestCoordinateLookup:
         await lookup.geocode("1600 Pennsylvania Avenue NW, Washington, DC")
 
         # Create DataFrame with coordinates
-        df = pd.DataFrame({
-            "name": ["White House", "Capitol"],
-            "latitude": [38.8977, 38.8899],
-            "longitude": [-77.0365, -77.0091],
-        })
+        df = pd.DataFrame(
+            {
+                "name": ["White House", "Capitol"],
+                "latitude": [38.8977, 38.8899],
+                "longitude": [-77.0365, -77.0091],
+            }
+        )
 
         results = await lookup.lookup_coordinates_batch(df)
 

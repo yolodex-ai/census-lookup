@@ -391,6 +391,7 @@ class CensusDataDownloader:
 
                     total_size = response.content_length or 0
 
+                    pbar = None
                     if show_progress:
                         pbar = tqdm(
                             total=total_size,
@@ -403,10 +404,10 @@ class CensusDataDownloader:
                     with open(zip_path, "wb") as f:
                         async for chunk in response.content.iter_chunked(8192):
                             f.write(chunk)
-                            if show_progress:
+                            if pbar:
                                 pbar.update(len(chunk))
 
-                    if show_progress:
+                    if pbar:
                         pbar.close()
 
                     break  # Success
@@ -419,7 +420,7 @@ class CensusDataDownloader:
                 if zip_path.exists():
                     zip_path.unlink()
                 if attempt < self.retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     if show_progress:
                         print(f"  Retry {attempt + 1}/{self.retries} in {wait_time}s...")
                     await asyncio.sleep(wait_time)

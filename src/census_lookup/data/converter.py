@@ -103,9 +103,7 @@ class GeoParquetConverter:
         gdf = gpd.read_file(shapefile_path)
 
         # Validate GEOID20 format
-        invalid_geoids = gdf[
-            ~gdf["GEOID20"].str.match(r"^\d{15}$", na=False)
-        ]
+        invalid_geoids = gdf[~gdf["GEOID20"].str.match(r"^\d{15}$", na=False)]
         if not invalid_geoids.empty:
             geoid_col = invalid_geoids["GEOID20"]
             samples = cast(pd.Series, geoid_col).head(5).tolist()

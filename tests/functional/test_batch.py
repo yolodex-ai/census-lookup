@@ -22,10 +22,12 @@ class TestBatchLookup:
         # Pre-load DC to avoid race condition in concurrent batch geocoding
         await lookup.load_state("DC")
 
-        results = await lookup.geocode_batch([
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "100 Maryland Ave SW, Washington, DC",
-        ])
+        results = await lookup.geocode_batch(
+            [
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "100 Maryland Ave SW, Washington, DC",
+            ]
+        )
 
         assert len(results) == 2
         assert "geoid" in results.columns
@@ -42,10 +44,12 @@ class TestBatchLookup:
         # Pre-load DC to avoid race condition in concurrent batch geocoding
         await lookup.load_state("DC")
 
-        addresses = pd.Series([
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "100 Maryland Ave SW, Washington, DC",
-        ])
+        addresses = pd.Series(
+            [
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "100 Maryland Ave SW, Washington, DC",
+            ]
+        )
 
         results = await lookup.geocode_batch(addresses, progress=False)
 
@@ -60,10 +64,12 @@ class TestBatchLookup:
             data_dir=isolated_data_dir,
         )
 
-        results = await lookup.geocode_batch([
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "completely invalid address that won't match",
-        ])
+        results = await lookup.geocode_batch(
+            [
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "completely invalid address that won't match",
+            ]
+        )
 
         assert len(results) == 2
         # At least one should be matched

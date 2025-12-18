@@ -81,9 +81,7 @@ def batch(
     variables: tuple[str, ...],
 ):
     """Process a batch of addresses from CSV file."""
-    asyncio.run(
-        _batch_async(input_file, output_file, address_column, level, variables)
-    )
+    asyncio.run(_batch_async(input_file, output_file, address_column, level, variables))
 
 
 async def _batch_async(
@@ -122,9 +120,7 @@ async def _batch_async(
         )
 
         # Merge results with original data
-        output_df = pd.concat(
-            [df.reset_index(drop=True), results.reset_index(drop=True)], axis=1
-        )
+        output_df = pd.concat([df.reset_index(drop=True), results.reset_index(drop=True)], axis=1)
 
         # Save
         output_path = Path(output_file)
@@ -139,7 +135,7 @@ async def _batch_async(
 
         # Summary
         matched = results["match_type"].isin(["interpolated", "exact"]).sum()
-        click.echo(f"Matched: {matched}/{len(df)} ({100*matched/len(df):.1f}%)")
+        click.echo(f"Matched: {matched}/{len(df)} ({100 * matched / len(df):.1f}%)")
     finally:
         await lookup_instance.close()
 
@@ -260,9 +256,7 @@ def coords(lat: float, lon: float, level: str, variables: tuple[str, ...]):
     asyncio.run(_coords_async(lat, lon, level, variables))
 
 
-async def _coords_async(
-    lat: float, lon: float, level: str, variables: tuple[str, ...]
-):
+async def _coords_async(lat: float, lon: float, level: str, variables: tuple[str, ...]):
     """Async implementation of coords command."""
     geo_level = GeoLevel[level.upper()]
 

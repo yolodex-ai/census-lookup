@@ -497,9 +497,7 @@ class CensusLookup:
             result.loc[mask, "_geoid"] = geoids.loc[mask, "GEOID"]
 
         # Truncate to level
-        result["GEOID"] = result["_geoid"].apply(
-            lambda x: x[: level.geoid_length] if x else None
-        )
+        result["GEOID"] = result["_geoid"].apply(lambda x: x[: level.geoid_length] if x else None)
         result = result.drop(columns=["_geoid"])
 
         # Join census data

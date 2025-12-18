@@ -99,4 +99,3 @@ class TestErrorHandling:
 
         assert not result.is_matched
         assert result.match_type == "parse_error"
-

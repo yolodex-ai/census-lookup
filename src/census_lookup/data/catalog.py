@@ -72,9 +72,7 @@ class DataCatalog:
                     raw = json.load(f)
                     self._data.version = raw.get("version", "1.0")
                     datasets = raw.get("datasets", {})
-                    self._data.datasets = {
-                        k: DatasetInfo(**v) for k, v in datasets.items()
-                    }
+                    self._data.datasets = {k: DatasetInfo(**v) for k, v in datasets.items()}
             except (json.JSONDecodeError, TypeError):
                 # Corrupted catalog, start fresh
                 self._data = CatalogData()

@@ -1,6 +1,7 @@
 """Example of batch processing addresses with census-lookup."""
 
 import pandas as pd
+
 from census_lookup import CensusLookup, GeoLevel
 
 # Create sample data
@@ -37,7 +38,7 @@ print(output[["id", "address", "geoid", "match_type", "P1_001N", "H1_001N"]])
 
 # Summary statistics
 matched = results["match_type"].isin(["interpolated", "exact"]).sum()
-print(f"\nMatch rate: {matched}/{len(df)} ({100*matched/len(df):.1f}%)")
+print(f"\nMatch rate: {matched}/{len(df)} ({100 * matched / len(df):.1f}%)")
 
 # Save to file
 # output.to_csv("geocoded_addresses.csv", index=False)

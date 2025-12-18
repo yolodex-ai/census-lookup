@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 
 class RepeatedLabelError(Exception):
     """Exception raised when address has repeated label tokens."""
+
     original_string: str
     parsed_string: List[Tuple[str, str]]
 

@@ -76,8 +76,7 @@ class DuckDBEngine:
 
         # Build query for each state
         parquet_paths = [
-            str(self.get_census_parquet_path(state_fips))
-            for state_fips in state_fips_set
+            str(self.get_census_parquet_path(state_fips)) for state_fips in state_fips_set
         ]
 
         # Register GEOIDs as a temporary table

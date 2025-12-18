@@ -3,7 +3,6 @@
 Tests edge cases that exercise error handling and fallback logic through public API.
 """
 
-
 from census_lookup import CensusLookup, GeoLevel
 
 
