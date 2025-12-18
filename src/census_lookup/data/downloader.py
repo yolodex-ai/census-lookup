@@ -308,12 +308,12 @@ class CensusDataDownloader:
 
     API_BASE = "https://api.census.gov/data/2020/dec/pl"
 
-    def __init__(self, timeout: int = 60):
+    def __init__(self, timeout: int = 300):
         """
         Initialize Census data downloader.
 
         Args:
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default 5 minutes for large states)
         """
         self.timeout = timeout
         self._session: Optional[aiohttp.ClientSession] = None
