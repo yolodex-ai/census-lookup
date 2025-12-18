@@ -1,5 +1,11 @@
 # census-lookup
 
+[![CI](https://github.com/yolodex-ai/census-lookup/actions/workflows/ci.yml/badge.svg)](https://github.com/yolodex-ai/census-lookup/actions/workflows/ci.yml)
+[![PyPI version](https://badge.fury.io/py/census-lookup.svg)](https://pypi.org/project/census-lookup/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/yolodex-ai/census-lookup)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Python library for mapping US addresses to Census 2020 block-level data locally, without relying on rate-limited APIs.
 
 ## Features
