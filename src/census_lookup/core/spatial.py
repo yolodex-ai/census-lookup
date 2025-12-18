@@ -30,10 +30,6 @@ class SpatialIndex:
         self._polygons = polygons
         self._geoid_col = geoid_column
 
-        # Ensure spatial index is built
-        if not self._polygons.has_sindex:
-            _ = self._polygons.sindex
-
     def lookup(self, point: Point) -> Optional[str]:
         """
         Find GEOID containing a point.

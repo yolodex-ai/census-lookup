@@ -1,7 +1,7 @@
 """DuckDB-based data engine for census queries and joins."""
 
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import duckdb
 import pandas as pd
@@ -56,7 +56,7 @@ class DuckDBEngine:
 
     def join_census_data(
         self,
-        geoids: Union[List[str], pd.Series],
+        geoids: List[str],
         variables: List[str],
         geo_level: GeoLevel = GeoLevel.BLOCK,
     ) -> pd.DataFrame:
@@ -64,32 +64,21 @@ class DuckDBEngine:
         Join census variables to a list of GEOIDs.
 
         Args:
-            geoids: List or Series of GEOIDs
+            geoids: List of GEOIDs (must not be empty)
             variables: Census variable codes to retrieve
             geo_level: Geographic level of the GEOIDs
 
         Returns:
             DataFrame with GEOID and requested variables
         """
-        if isinstance(geoids, pd.Series):
-            geoids = geoids.tolist()
-
-        if not geoids:
-            return pd.DataFrame(columns=["GEOID"] + variables)
-
         # Determine which states we need
         state_fips_set = set(g[:2] for g in geoids if g and len(g) >= 2)
 
-        # Build query for each state and union
-        parquet_paths = []
-        for state_fips in state_fips_set:
-            path = self.get_census_parquet_path(state_fips)
-            if path.exists():
-                parquet_paths.append(str(path))
-
-        if not parquet_paths:
-            # No data available, return empty with GEOIDs
-            return pd.DataFrame({"GEOID": geoids, **{v: None for v in variables}})
+        # Build query for each state
+        parquet_paths = [
+            str(self.get_census_parquet_path(state_fips))
+            for state_fips in state_fips_set
+        ]
 
         # Register GEOIDs as a temporary table
         geoid_df = pd.DataFrame({"GEOID": geoids})
@@ -130,7 +119,6 @@ class DuckDBEngine:
         self,
         geoid: str,
         variables: List[str],
-        geo_level: Optional[GeoLevel] = None,
     ) -> Dict[str, Optional[float]]:
         """
         Get census variables for a single GEOID.
@@ -138,19 +126,11 @@ class DuckDBEngine:
         Args:
             geoid: Geographic identifier
             variables: Variables to retrieve
-            geo_level: Geographic level (auto-detected from GEOID length if not provided)
 
         Returns:
             Dictionary of variable values
         """
-        # Auto-detect geo_level from GEOID length if not provided
-        if geo_level is None:
-            geo_level = GeoLevel.from_geoid_length(len(geoid))
-
+        geo_level = GeoLevel.from_geoid_length(len(geoid))
         result = self.join_census_data([geoid], variables, geo_level)
-
-        if result.empty:
-            return {v: None for v in variables}
-
         row = result.iloc[0]
         return {v: row.get(v) for v in variables}
