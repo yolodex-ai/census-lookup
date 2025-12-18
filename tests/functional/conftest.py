@@ -345,12 +345,29 @@ def create_pl94171_zip(state_abbrev: str, census_df: pd.DataFrame) -> bytes:
     # Build the geo file content (pipe-delimited)
     # Format: Many columns, we care about positions 2 (SUMLEV), 7 (LOGRECNO), 9 (GEOID)
     geo_lines = []
+
+    # Add a state-level record (SUMLEV=040) that won't match block filter (750)
+    # This covers the branch where sumlev != summary_level (line 127->123)
+    state_fields = ["" for _ in range(20)]
+    state_fields[2] = "040"  # State level - won't match "750"
+    state_fields[7] = "0000001"
+    state_fields[9] = "0400000US11"  # State-level GEOID format
+    geo_lines.append("|".join(state_fields))
+
+    # Add a record with GEOID that doesn't have "US" prefix (alternate format)
+    # This covers the branch where "US" not in geoid (line 132->135)
+    alt_fields = ["" for _ in range(20)]
+    alt_fields[2] = "750"  # Block level - will match
+    alt_fields[7] = "0000002"
+    alt_fields[9] = "110010062021099"  # Direct GEOID without "US" prefix
+    geo_lines.append("|".join(alt_fields))
+
     for i, row in enumerate(census_df.itertuples(), start=1):
         # Build a line with enough pipe-delimited fields
         # Positions: 0, 1, 2=SUMLEV, 3, 4, 5, 6, 7=LOGRECNO, 8, 9=GEOID, ...
         geoid = row.GEOID
         sumlev = "750"  # Block level
-        logrecno = str(i).zfill(7)  # Zero-padded logical record number
+        logrecno = str(i + 2).zfill(7)  # Zero-padded, offset by 2 for extra records
 
         # GEOID format in file is like "7500000US110010062021009"
         full_geoid = f"7500000US{geoid}"
