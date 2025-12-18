@@ -405,6 +405,51 @@ class TestCLIEdgeCases:
         assert "TB" in _format_size(1024 * 1024 * 1024 * 1024 * 2)
 
 
+class TestCLIACSVariables:
+    """Test CLI with ACS variables."""
+
+    def test_lookup_with_acs_variable(self, mock_census_http, isolated_data_dir, monkeypatch):
+        """Look up address with ACS variable (B prefix) auto-routes to acs_variables."""
+        monkeypatch.setenv("HOME", str(isolated_data_dir.parent))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "lookup",
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "-v",
+                "B19013_001E",  # ACS variable - median income
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        # Should contain the ACS variable in output
+        assert "B19013_001E" in result.output
+
+    def test_lookup_with_mixed_variables(self, mock_census_http, isolated_data_dir, monkeypatch):
+        """Look up address with both PL94171 and ACS variables."""
+        monkeypatch.setenv("HOME", str(isolated_data_dir.parent))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "lookup",
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "-v",
+                "P1_001N",  # PL94171 variable
+                "-v",
+                "B19013_001E",  # ACS variable
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        # Should contain both variables
+        assert "P1_001N" in result.output
+        assert "B19013_001E" in result.output
+
+
 class TestCLIDownloadErrors:
     """Test CLI download error handling."""
 

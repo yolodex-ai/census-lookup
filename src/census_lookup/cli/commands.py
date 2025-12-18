@@ -41,13 +41,28 @@ def lookup(address: str, level: str, variables: tuple[str, ...]):
     asyncio.run(_lookup_async(address, level, variables))
 
 
+def _split_variables(variables: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    """Split variables into PL94171 (P*, H*) and ACS (B*) variables."""
+    pl_vars = []
+    acs_vars = []
+    for v in variables:
+        if v.startswith("B"):
+            acs_vars.append(v)
+        else:
+            pl_vars.append(v)
+    return pl_vars, acs_vars
+
+
 async def _lookup_async(address: str, level: str, variables: tuple[str, ...]):
     """Async implementation of lookup command."""
     geo_level = GeoLevel[level.upper()]
 
+    pl_vars, acs_vars = _split_variables(variables)
+
     lookup_instance = CensusLookup(
         geo_level=geo_level,
-        variables=list(variables) if variables else None,
+        variables=pl_vars if pl_vars else None,
+        acs_variables=acs_vars if acs_vars else None,
     )
 
     try:
@@ -106,9 +121,11 @@ async def _batch_async(
 
     # Process
     geo_level = GeoLevel[level.upper()]
+    pl_vars, acs_vars = _split_variables(variables)
     lookup_instance = CensusLookup(
         geo_level=geo_level,
-        variables=list(variables) if variables else None,
+        variables=pl_vars if pl_vars else None,
+        acs_variables=acs_vars if acs_vars else None,
     )
 
     try:
@@ -260,9 +277,11 @@ async def _coords_async(lat: float, lon: float, level: str, variables: tuple[str
     """Async implementation of coords command."""
     geo_level = GeoLevel[level.upper()]
 
+    pl_vars, acs_vars = _split_variables(variables)
     lookup_instance = CensusLookup(
         geo_level=geo_level,
-        variables=list(variables) if variables else None,
+        variables=pl_vars if pl_vars else None,
+        acs_variables=acs_vars if acs_vars else None,
     )
 
     try:
