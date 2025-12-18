@@ -1,6 +1,6 @@
 [project]
 name = "census-lookup"
-version = "0.1.5"
+version = "0.1.8"
 description = "Offline address-to-Census data mapping for Python with PL 94-171 and ACS support"
 readme = "README.md"
 requires-python = ">=3.10"

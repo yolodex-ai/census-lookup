@@ -53,6 +53,28 @@ uvx census-lookup variables
 uvx census-lookup info
 ```
 
+### Example Output
+
+```json
+{
+  "input_address": "1600 Pennsylvania Avenue NW, Washington, DC 20500",
+  "matched_address": "Pennsylvania Ave NW",
+  "latitude": 38.898761,
+  "longitude": -77.035117,
+  "match_type": "interpolated",
+  "match_score": 0.9,
+  "geoid": "110010101003014",
+  "state_fips": "11",
+  "county_fips": "11001",
+  "tract": "11001010100",
+  "block_group": "110010101003",
+  "block": "110010101003014",
+  "P1_001N": 19.0,
+  "B19013_001E": 72500.0,
+  "B25077_001E": 485000.0
+}
+```
+
 ### Python API
 
 ```python
@@ -109,13 +131,20 @@ lookup = CensusLookup(variables=["P1_001N", "P1_003N", "H1_001N"])
 
 Available at **tract level** and above. Includes richer demographic data:
 
-- **Income**: Median household income, per capita income, poverty status
-- **Education**: Educational attainment levels
-- **Employment**: Labor force status, occupation, industry
-- **Housing**: Home values, rent, tenure, housing characteristics
-- **Health Insurance**: Coverage by type
-- **Commute**: Transportation to work, travel time
-- **And more**: Language, internet access, household composition
+| Category | Key Variables | Description |
+|----------|---------------|-------------|
+| **Income** | `B19013_001E`, `B19301_001E` | Median household income, per capita income |
+| **Poverty** | `B17001_001E`, `B17001_002E` | Total population, below poverty level |
+| **Education** | `B15003_022E`, `B15003_023E` | Bachelor's degree, Master's degree |
+| **Employment** | `B23025_004E`, `B23025_005E` | Employed, Unemployed |
+| **Housing** | `B25077_001E`, `B25064_001E` | Median home value, median rent |
+| **Tenure** | `B25003_002E`, `B25003_003E` | Owner-occupied, Renter-occupied |
+| **Health** | `B27010_017E`, `B27010_050E` | Employer insurance, Medicare |
+| **Commute** | `B08301_003E`, `B08301_010E` | Drove alone, Public transit |
+| **Internet** | `B28002_004E`, `B28002_013E` | Broadband access, No internet |
+| **Language** | `B16001_002E`, `B16001_003E` | English only, Spanish |
+
+Over 100+ ACS variables available. Run `uvx census-lookup variables --acs` for the full list
 
 ```python
 from census_lookup import CensusLookup, GeoLevel, list_acs_variable_groups
