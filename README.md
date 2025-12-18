@@ -6,7 +6,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/yolodex-ai/census-lookup)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python library for mapping US addresses to Census 2020 block-level data locally, without relying on rate-limited APIs.
+A Python library for mapping US addresses to Census data locally, without relying on rate-limited APIs. Supports Census 2020 (PL 94-171) and American Community Survey (ACS) 5-Year Estimates.
 
 ## Features
 
