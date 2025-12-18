@@ -55,6 +55,10 @@ uvx census-lookup info
 
 ### Example Output
 
+```bash
+$ uvx census-lookup lookup "1600 Pennsylvania Avenue NW, Washington, DC 20500"
+```
+
 ```json
 {
   "input_address": "1600 Pennsylvania Avenue NW, Washington, DC 20500",
@@ -69,7 +73,20 @@ uvx census-lookup info
   "tract": "11001010100",
   "block_group": "110010101003",
   "block": "110010101003014",
-  "P1_001N": 19.0,
+  "P1_001N": 19.0
+}
+```
+
+With ACS variables (median income, home value):
+
+```bash
+$ uvx census-lookup lookup "1600 Pennsylvania Avenue NW, Washington, DC 20500" \
+    -v B19013_001E -v B25077_001E
+```
+
+```json
+{
+  ...
   "B19013_001E": 72500.0,
   "B25077_001E": 485000.0
 }
