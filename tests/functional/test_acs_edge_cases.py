@@ -13,10 +13,10 @@ from tests.functional.conftest import (
     DC_COUNTY_FIPS,
     DC_STATE_FIPS,
     TEST_TRACT_GEOID,
-    create_census_api_response,
     create_dc_addrfeat_gdf,
     create_dc_blocks_gdf,
     create_dc_census_df,
+    create_pl94171_zip,
     create_shapefile_zip,
 )
 
@@ -34,6 +34,7 @@ class TestACSEdgeCases:
         addrfeat_gdf = create_dc_addrfeat_gdf()
         addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
         census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
 
         data_dir = tmp_path / "census-lookup"
         data_dir.mkdir()
@@ -47,18 +48,9 @@ class TestACSEdgeCases:
             addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
             mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
 
-            def pl_callback(url, **kwargs):
-                get_param = unquote(url.query.get("get", ""))
-                starts = ("P", "H")
-                requested_vars = [v for v in get_param.split(",") if v.startswith(starts)]
-                requested_vars = requested_vars or ["P1_001N"]
-                response = create_census_api_response(
-                    requested_vars, census_df["GEOID"].tolist(), census_df
-                )
-                return CallbackResult(status=200, payload=response)
-
-            pl_pattern = re.compile(r".*api\.census\.gov/data/2020/dec/pl.*")
-            mocked.get(pl_pattern, callback=pl_callback, repeat=True)
+            # Mock PL 94-171 bulk file download
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
 
             # Mock ACS API to return data for a DIFFERENT tract (not our test area)
             def acs_callback_wrong_tract(url, **kwargs):
@@ -102,6 +94,7 @@ class TestACSEdgeCases:
         addrfeat_gdf = create_dc_addrfeat_gdf()
         addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
         census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
 
         data_dir = tmp_path / "census-lookup"
         data_dir.mkdir()
@@ -115,18 +108,9 @@ class TestACSEdgeCases:
             addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
             mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
 
-            def pl_callback(url, **kwargs):
-                get_param = unquote(url.query.get("get", ""))
-                starts = ("P", "H")
-                requested_vars = [v for v in get_param.split(",") if v.startswith(starts)]
-                requested_vars = requested_vars or ["P1_001N"]
-                response = create_census_api_response(
-                    requested_vars, census_df["GEOID"].tolist(), census_df
-                )
-                return CallbackResult(status=200, payload=response)
-
-            pl_pattern = re.compile(r".*api\.census\.gov/data/2020/dec/pl.*")
-            mocked.get(pl_pattern, callback=pl_callback, repeat=True)
+            # Mock PL 94-171 bulk file download
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
 
             # Mock ACS API to return DIFFERENT variables than requested
             def acs_callback_missing_var(url, **kwargs):
@@ -165,6 +149,7 @@ class TestACSEdgeCases:
         addrfeat_gdf = create_dc_addrfeat_gdf()
         addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
         census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
 
         data_dir = tmp_path / "census-lookup"
         data_dir.mkdir()
@@ -178,18 +163,9 @@ class TestACSEdgeCases:
             addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
             mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
 
-            def pl_callback(url, **kwargs):
-                get_param = unquote(url.query.get("get", ""))
-                starts = ("P", "H")
-                requested_vars = [v for v in get_param.split(",") if v.startswith(starts)]
-                requested_vars = requested_vars or ["P1_001N"]
-                response = create_census_api_response(
-                    requested_vars, census_df["GEOID"].tolist(), census_df
-                )
-                return CallbackResult(status=200, payload=response)
-
-            pl_pattern = re.compile(r".*api\.census\.gov/data/2020/dec/pl.*")
-            mocked.get(pl_pattern, callback=pl_callback, repeat=True)
+            # Mock PL 94-171 bulk file download
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
 
             # Mock ACS API to return null value
             def acs_callback_null_value(url, **kwargs):

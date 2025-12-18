@@ -299,23 +299,24 @@ class TIGERDownloader:
 
 class CensusDataDownloader:
     """
-    Downloads Census PL 94-171 data via the Census API.
+    Downloads Census PL 94-171 data from bulk files on Census FTP.
 
-    All methods are async and use aiohttp for concurrent downloads.
-    Variable batches are downloaded concurrently when there are more
-    than 50 variables (Census API limit per request).
+    Downloads pre-built zip files which are much faster and more reliable
+    than the Census API for large states.
+
+    Data source: https://www2.census.gov/programs-surveys/decennial/2020/data/01-Redistricting_File--PL_94-171/
     """
 
-    API_BASE = "https://api.census.gov/data/2020/dec/pl"
-
-    def __init__(self, timeout: int = 300):
+    def __init__(self, timeout: int = 600, retries: int = 3):
         """
         Initialize Census data downloader.
 
         Args:
-            timeout: Request timeout in seconds (default 5 minutes for large states)
+            timeout: Request timeout in seconds (default 10 minutes for large files)
+            retries: Number of retry attempts for failed downloads
         """
         self.timeout = timeout
+        self.retries = retries
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -341,127 +342,107 @@ class CensusDataDownloader:
         show_progress: bool = True,
     ) -> Path:
         """
-        Download PL 94-171 data for a state via Census API (block level).
+        Download PL 94-171 data for a state from Census bulk files.
 
+        Downloads the state's zip file, parses it, and saves as parquet.
         Uses coordination to prevent duplicate downloads.
-        Variable batches are downloaded concurrently.
 
         Args:
             state_fips: 2-digit state FIPS code
-            variables: List of variable codes to download
-            dest_path: Output path for CSV file
-            show_progress: Show elapsed time indicator
+            variables: List of variable codes to include
+            dest_path: Output path for parquet file
+            show_progress: Show download progress bar
 
         Returns:
-            Path to downloaded CSV file
+            Path to downloaded parquet file
         """
         resource_key = f"pl94171/{state_fips}/block"
 
         async def do_download() -> Path:
-            return await self._download_pl94171(
+            return await self._download_pl94171_bulk(
                 state_fips, variables, dest_path, show_progress=show_progress
             )
 
         result = await _coordinator.download_once(resource_key, do_download)
-        assert result is not None  # do_download always returns Path
+        assert result is not None
         return result
 
-    async def _download_pl94171(
+    async def _download_pl94171_bulk(
         self,
         state_fips: str,
         variables: List[str],
         dest_path: Path,
         show_progress: bool = True,
     ) -> Path:
-        """Internal implementation for PL 94-171 download (block level only)."""
-        import json
+        """Download PL 94-171 bulk zip file and parse it."""
+        from census_lookup.data.pl94171_parser import get_pl94171_url, parse_pl94171_zip
 
-        import pandas as pd
-
+        url = get_pl94171_url(state_fips)
         session = await self._get_session()
-        geo_params = self._build_geo_params(state_fips)
 
-        # Batch variables into groups of 50
-        var_batches = [variables[i : i + 50] for i in range(0, len(variables), 50)]
+        # Download zip file to temp location
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        zip_path = dest_path.parent / f"pl94171_{state_fips}.zip"
 
-        # Download batches concurrently with streaming progress and retry logic
-        async def fetch_batch(
-            batch: List[str], pbar: Optional[tqdm] = None, max_retries: int = 3
-        ) -> Any:
-            params = {
-                "get": ",".join(["GEO_ID"] + batch),
-                "for": geo_params["for"],
-                "in": geo_params.get("in", ""),
-            }
+        for attempt in range(self.retries):
+            try:
+                async with session.get(url) as response:
+                    response.raise_for_status()
 
-            url = f"{self.API_BASE}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+                    total_size = response.content_length or 0
 
-            for attempt in range(max_retries):
-                try:
-                    async with session.get(url) as response:
-                        response.raise_for_status()
+                    if show_progress:
+                        pbar = tqdm(
+                            total=total_size,
+                            desc="  Downloading PL 94-171",
+                            unit="B",
+                            unit_scale=True,
+                            unit_divisor=1024,
+                        )
 
-                        # Stream the response to show byte progress
-                        if pbar is not None:
-                            total = response.content_length
-                            if total:
-                                pbar.total = total
-                                pbar.refresh()
-
-                            chunks = []
-                            async for chunk in response.content.iter_any():
-                                chunks.append(chunk)
+                    with open(zip_path, "wb") as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            f.write(chunk)
+                            if show_progress:
                                 pbar.update(len(chunk))
 
-                            return json.loads(b"".join(chunks))
-                        else:
-                            return await response.json()
-                except (
-                    aiohttp.ClientPayloadError,
-                    aiohttp.ClientConnectionError,
-                    asyncio.TimeoutError,
-                ) as e:
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                        if pbar:
-                            pbar.set_description(
-                                f"  Retry {attempt + 1}/{max_retries} in {wait_time}s"
-                            )
-                        await asyncio.sleep(wait_time)
-                        if pbar:
-                            pbar.set_description("  Fetching from Census API")
-                            pbar.reset()
-                    else:
-                        raise e
+                    if show_progress:
+                        pbar.close()
 
-        # PL 94-171 has <50 variables, so only one batch typically
+                    break  # Success
+
+            except (
+                aiohttp.ClientPayloadError,
+                aiohttp.ClientConnectionError,
+                asyncio.TimeoutError,
+            ) as e:
+                if zip_path.exists():
+                    zip_path.unlink()
+                if attempt < self.retries - 1:
+                    wait_time = 2 ** attempt
+                    if show_progress:
+                        print(f"  Retry {attempt + 1}/{self.retries} in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise e
+
+        # Parse zip file
         if show_progress:
-            pbar = tqdm(
-                total=0,
-                desc="  Fetching from Census API",
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-            )
-            tasks = [fetch_batch(batch, pbar) for batch in var_batches]
-            all_data = await asyncio.gather(*tasks)
-            pbar.close()
-        else:
-            tasks = [fetch_batch(batch, None) for batch in var_batches]
-            all_data = await asyncio.gather(*tasks)
+            print("  Parsing PL 94-171 data...")
 
-        data = all_data[0]
-        result = pd.DataFrame(data[1:], columns=data[0])
+        df = parse_pl94171_zip(zip_path, variables=variables, summary_level="750")
 
-        result.to_csv(dest_path, index=False)
+        # Rename GEOID to GEO_ID for compatibility with existing code
+        df = df.rename(columns={"GEOID": "GEO_ID"})
+
+        # Save as parquet
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(dest_path, index=False)
+
+        # Clean up zip file
+        zip_path.unlink()
+
         return dest_path
-
-    def _build_geo_params(self, state_fips: str) -> dict[str, str]:
-        """Build geographic parameters for Census API (block level only)."""
-        return {
-            "for": "block:*",
-            "in": f"state:{state_fips} county:* tract:*",
-        }
 
 
 class ACSDataDownloader:

@@ -212,33 +212,27 @@ class DataManager:
             if show_progress:
                 print(f"Downloading census data for {FIPS_STATES.get(state_fips, state_fips)}...")
 
-            # Download via Census API
             from census_lookup.census.variables import DEFAULT_VARIABLES
 
-            # Use unique temp file to avoid race conditions with concurrent downloads
-            csv_path = self.temp_dir / f"pl94171_{state_fips}_{uuid.uuid4().hex[:8]}.csv"
+            # Download bulk file and save as parquet directly
+            output_path = self.census_dir / "pl94171" / f"{state_fips}.parquet"
             await self.census_downloader.download_pl94171_for_state(
                 state_fips,
                 variables=DEFAULT_VARIABLES,
-                dest_path=csv_path,
+                dest_path=output_path,
                 show_progress=show_progress,
             )
 
-            # Convert to parquet
-            output_path = self.census_dir / "pl94171" / f"{state_fips}.parquet"
-            self.converter.convert_census_csv(csv_path, output_path)
-
             # Register in catalog
+            base_url = "https://www2.census.gov/programs-surveys/decennial/2020/data/01-Redistricting_File--PL_94-171"
             info = DatasetInfo.create(
                 dataset_type="pl94171",
                 state_fips=state_fips,
                 file_path=output_path,
-                source_url="https://api.census.gov/data/2020/dec/pl",
+                source_url=base_url,
             )
             self.catalog.register(info)
 
-            # Clean up
-            csv_path.unlink(missing_ok=True)
             return output_path
 
         await _coordinator.download_once(resource_key, do_ensure)

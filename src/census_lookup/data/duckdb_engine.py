@@ -96,6 +96,7 @@ class DuckDBEngine:
         # For higher geographic levels, we need to aggregate (SUM) the block data
         # The census parquet files store data at block level, so we GROUP BY
         # the truncated GEOID to get tract/county/state totals
+        # Note: PL 94-171 parquet files use GEO_ID column name
         agg_vars = ", ".join([f"SUM({v}) as {v}" for v in variables])
 
         sql = f"""
@@ -104,9 +105,9 @@ class DuckDBEngine:
             {var_list}
         FROM input_geoids i
         LEFT JOIN (
-            SELECT LEFT(GEOID, {geoid_length}) as GEOID, {agg_vars}
+            SELECT LEFT(GEO_ID, {geoid_length}) as GEOID, {agg_vars}
             FROM {parquet_glob}
-            GROUP BY LEFT(GEOID, {geoid_length})
+            GROUP BY LEFT(GEO_ID, {geoid_length})
         ) c ON i.GEOID = c.GEOID
         """
 
