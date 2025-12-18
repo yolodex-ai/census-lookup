@@ -151,7 +151,9 @@ async def _batch_async(
 
     # Read input
     if input_path.suffix != ".csv":
-        raise click.ClickException(f"Unsupported file format: {input_path.suffix}. Only CSV is supported.")
+        raise click.ClickException(
+            f"Unsupported file format: {input_path.suffix}. Only CSV is supported."
+        )
     df = pd.read_csv(input_path)
 
     if address_column not in df.columns:

@@ -1,7 +1,7 @@
 """Street name normalization for TIGER matching."""
 
 import re
-from typing import Dict, Optional
+from typing import Dict
 
 
 class StreetNormalizer:

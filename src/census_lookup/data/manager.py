@@ -186,7 +186,8 @@ class DataManager:
                 return self.catalog.get_path("addrfeat", state_fips)
 
             if show_progress:
-                print(f"Downloading address features for {FIPS_STATES.get(state_fips, state_fips)}...")
+                state_name = FIPS_STATES.get(state_fips, state_fips)
+                print(f"Downloading address features for {state_name}...")
 
             # Get list of counties for this state
             county_fips_list = self._get_county_fips_list(state_fips)
