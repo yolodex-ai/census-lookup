@@ -16,7 +16,7 @@ A Python library for mapping US addresses to Census data locally, without relyin
 - **Two Census data sources**:
   - **PL 94-171** (Redistricting Data): Population, race, housing counts at block level
   - **ACS 5-Year Estimates**: Income, education, employment, housing characteristics at tract level
-- **Efficient batch processing** using DuckDB for fast joins
+- **Efficient batch processing** for large address lists
 - **CLI and Python API** - use from command line or in your code
 
 ## Installation
