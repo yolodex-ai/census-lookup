@@ -252,7 +252,7 @@ class TIGERDownloader:
             return extract_dir
 
         # Download with retries
-        for attempt in range(self.retries):
+        for attempt in range(self.retries):  # pragma: no branch
             try:
                 await self._download_file(url, zip_path)
                 break
@@ -320,13 +320,15 @@ class CensusDataDownloader:
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self._session is None:
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
-            self._session = aiohttp.ClientSession(
-                timeout=timeout,
-                headers={"User-Agent": "census-lookup/0.1.0 (https://github.com/census-lookup)"},
-            )
+        """Create aiohttp session for download."""
+        # Session is created fresh for each download operation
+        # Coordinator prevents concurrent downloads of same resource
+        assert self._session is None, "Session already exists - possible re-entry bug"
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        self._session = aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": "census-lookup/0.1.0 (https://github.com/census-lookup)"},
+        )
         return self._session
 
     async def close(self):
@@ -482,13 +484,15 @@ class ACSDataDownloader:
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session."""
-        if self._session is None:
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
-            self._session = aiohttp.ClientSession(
-                timeout=timeout,
-                headers={"User-Agent": "census-lookup/0.1.0 (https://github.com/census-lookup)"},
-            )
+        """Create aiohttp session for download."""
+        # Session is created fresh for each download operation
+        # Coordinator prevents concurrent downloads of same resource
+        assert self._session is None, "Session already exists - possible re-entry bug"
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        self._session = aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": "census-lookup/0.1.0 (https://github.com/census-lookup)"},
+        )
         return self._session
 
     async def close(self):

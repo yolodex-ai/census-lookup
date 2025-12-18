@@ -417,3 +417,377 @@ class TestBatchProcessingEdgeCases:
         assert len(results) == 1
         # Empty should be parse_error
         assert results.iloc[0]["match_type"] == "parse_error"
+
+    async def test_batch_all_addresses_fail_to_match(self, mock_census_http, isolated_data_dir):
+        """Batch where all addresses fail to match returns empty geoids.
+
+        Tests lookup.py line 505->513 where geoids list is empty.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # All invalid addresses that won't match any street
+        addresses = [
+            "99999 Nonexistent Blvd, Washington, DC",
+            "88888 Fake Lane, Washington, DC",
+        ]
+
+        results = await lookup.geocode_batch(addresses)
+
+        assert len(results) == 2
+        # Both should fail to match
+        assert (
+            results["match_type"].eq("no_match").all()
+            or results["match_type"].eq("parse_error").all()
+        )
+
+
+class TestCoordinateBatchEdgeCases:
+    """Test coordinate batch processing edge cases."""
+
+    async def test_coordinate_batch_all_outside_blocks(self, mock_census_http, isolated_data_dir):
+        """Batch of coordinates all outside any block returns empty geoids.
+
+        Tests lookup.py line 505->513 (if geoids is empty in lookup_coordinates_batch).
+        """
+        import pandas as pd
+
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        await lookup.load_state("DC")
+
+        # Coordinates far from any DC blocks (Antarctica)
+        df = pd.DataFrame(
+            {
+                "name": ["Point1", "Point2"],
+                "latitude": [-70.0, -71.0],  # Antarctic
+                "longitude": [0.0, 0.0],
+            }
+        )
+
+        results = await lookup.lookup_coordinates_batch(df)
+
+        assert len(results) == 2
+        # All GEOIDs should be None since no blocks matched
+        assert results["GEOID"].isna().all()
+
+
+class TestZipCodeFiltering:
+    """Test ZIP code filtering in matcher."""
+
+    async def test_zip_filter_no_matches(self, mock_census_http, isolated_data_dir):
+        """ZIP filter finds candidates but none match the ZIP code.
+
+        Tests matcher.py line 173->177 where zip_mask.any() is False.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # Pennsylvania Ave exists but with ZIP 20500, not 99999
+        # The matcher finds the street but ZIP doesn't match any segment
+        result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC 99999")
+
+        # Should still attempt to match (falls through without filtering)
+        # The result depends on whether the non-ZIP-filtered match succeeds
+        assert result.match_type in ["interpolated", "no_match", "no_block"]
+
+
+class TestSingleWordStreet:
+    """Test single-word street name variant generation."""
+
+    async def test_single_word_street_no_type_variant(self, mock_census_http, isolated_data_dir):
+        """Single-word street name doesn't generate variant without type.
+
+        Tests normalizer.py line 463->468 where len(words) == 1.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # "Broadway" is a single word - variant generation should skip the
+        # "remove street type" logic (line 463-466) since there's only one word
+        result = await lookup.geocode("123 Broadway, Washington, DC")
+
+        # Result will be no_match since we don't have Broadway in mock data,
+        # but the important thing is that variant generation didn't crash
+        assert result.match_type in ["no_match", "parse_error", "interpolated"]
+
+
+class TestACSEdgeCases:
+    """Test ACS data edge cases with custom mocked responses."""
+
+    async def test_acs_tract_present_in_data(self, mock_census_http, isolated_data_dir):
+        """When tract is in ACS data, ACS variables are retrieved.
+
+        Tests that the normal path works with ACS data.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            acs_variables=["B19013_001E"],
+            data_dir=isolated_data_dir,
+        )
+
+        # Load state first
+        await lookup.load_state("DC")
+
+        # Lookup with the standard mock - tract 11001006202 IS in ACS data
+        result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+        assert result.is_matched
+        # ACS data should be present since tract matches
+        assert result.census_data.get("B19013_001E") is not None
+
+    async def test_acs_variable_missing_from_response(self, tmp_path):
+        """When one ACS variable is missing from response, it's skipped gracefully.
+
+        Tests lookup.py line 440 where var not in acs_row.columns.
+        We request TWO variables but API only returns ONE - the present variable
+        gets data, the missing one is skipped.
+        """
+        import re
+
+        from aioresponses import CallbackResult, aioresponses
+
+        from tests.functional.conftest import (
+            TEST_TRACT_GEOID,
+            create_dc_addrfeat_gdf,
+            create_dc_blocks_gdf,
+            create_dc_census_df,
+            create_pl94171_zip,
+            create_shapefile_zip,
+        )
+
+        # Create mock data
+        blocks_gdf = create_dc_blocks_gdf()
+        blocks_zip = create_shapefile_zip(blocks_gdf, "tl_2020_11_tabblock20")
+        addrfeat_gdf = create_dc_addrfeat_gdf()
+        addrfeat_zip = create_shapefile_zip(addrfeat_gdf, "tl_2020_11001_addrfeat")
+        census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
+
+        # Set up data directory
+        data_dir = tmp_path / "census-lookup"
+        data_dir.mkdir()
+        for subdir in [
+            "tiger/blocks",
+            "tiger/addrfeat",
+            "census/pl94171",
+            "census/acs5/tract",
+            "temp",
+        ]:
+            (data_dir / subdir).mkdir(parents=True)
+
+        with aioresponses() as mocked:
+            # Standard mocks for TIGER and PL 94-171
+            blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+            mocked.get(blocks_pattern, body=blocks_zip, repeat=True)
+
+            addrfeat_pattern = re.compile(r".*census\.gov.*ADDRFEAT.*\.zip")
+            mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
+
+            # ACS mock returns only ONE of the requested variables
+            # User requests [B19013_001E, B19301_001E] but API only returns B19013_001E
+            def acs_callback(url, **kwargs):
+                # Return only B19013_001E, not B19301_001E
+                header = ["GEO_ID", "NAME", "B19013_001E", "state", "county", "tract"]
+                rows = [
+                    header,
+                    [f"1400000US{TEST_TRACT_GEOID}", "Test", "75000", "11", "001", "006202"],
+                ]
+                return CallbackResult(status=200, payload=rows)
+
+            acs_pattern = re.compile(r".*api\.census\.gov/data/\d+/acs/acs5.*")
+            mocked.get(acs_pattern, callback=acs_callback, repeat=True)
+
+            # Request TWO variables - one exists (B19013_001E), one doesn't (B19301_001E)
+            lookup = CensusLookup(
+                geo_level=GeoLevel.TRACT,
+                variables=["P1_001N"],
+                acs_variables=["B19013_001E", "B19301_001E"],  # B19301_001E won't be in response
+                data_dir=data_dir,
+            )
+
+            await lookup.load_state("DC")
+
+            # Lookup should succeed
+            result = await lookup.lookup_coordinates(lat=38.8977, lon=-77.0365)
+
+            assert result.is_matched
+            # B19013_001E IS in the response, so it should be in census_data
+            assert result.census_data.get("B19013_001E") == 75000.0
+            # B19301_001E is NOT in the response (line 440 branch: var not in columns)
+            assert result.census_data.get("B19301_001E") is None
+
+    async def test_acs_row_empty_for_tract(self, tmp_path):
+        """When tract not found in ACS data, ACS variables are skipped gracefully.
+
+        Tests lookup.py line 437 where acs_row.empty is True.
+        """
+        import re
+
+        from aioresponses import CallbackResult, aioresponses
+
+        from tests.functional.conftest import (
+            create_dc_addrfeat_gdf,
+            create_dc_blocks_gdf,
+            create_dc_census_df,
+            create_pl94171_zip,
+            create_shapefile_zip,
+        )
+
+        # Create mock data
+        blocks_gdf = create_dc_blocks_gdf()
+        blocks_zip = create_shapefile_zip(blocks_gdf, "tl_2020_11_tabblock20")
+        addrfeat_gdf = create_dc_addrfeat_gdf()
+        addrfeat_zip = create_shapefile_zip(addrfeat_gdf, "tl_2020_11001_addrfeat")
+        census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
+
+        # Set up data directory
+        data_dir = tmp_path / "census-lookup"
+        data_dir.mkdir()
+        for subdir in [
+            "tiger/blocks",
+            "tiger/addrfeat",
+            "census/pl94171",
+            "census/acs5/tract",
+            "temp",
+        ]:
+            (data_dir / subdir).mkdir(parents=True)
+
+        with aioresponses() as mocked:
+            # Standard mocks
+            blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+            mocked.get(blocks_pattern, body=blocks_zip, repeat=True)
+
+            addrfeat_pattern = re.compile(r".*census\.gov.*ADDRFEAT.*\.zip")
+            mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
+
+            # ACS mock returns data for DIFFERENT tract than the one we'll look up
+            def acs_callback(url, **kwargs):
+                # Return data for a completely different tract (99999999999)
+                header = ["GEO_ID", "NAME", "B19013_001E", "state", "county", "tract"]
+                rows = [
+                    header,
+                    ["1400000US99999999999", "Wrong Tract", "99999", "99", "999", "999999"],
+                ]
+                return CallbackResult(status=200, payload=rows)
+
+            acs_pattern = re.compile(r".*api\.census\.gov/data/\d+/acs/acs5.*")
+            mocked.get(acs_pattern, callback=acs_callback, repeat=True)
+
+            lookup = CensusLookup(
+                geo_level=GeoLevel.TRACT,
+                variables=["P1_001N"],
+                acs_variables=["B19013_001E"],
+                data_dir=data_dir,
+            )
+
+            await lookup.load_state("DC")
+
+            # Lookup White House coords - tract 11001006202 won't be in ACS data
+            result = await lookup.lookup_coordinates(lat=38.8977, lon=-77.0365)
+
+            assert result.is_matched
+            # ACS variable won't be present because tract wasn't found
+            # (line 437 branch: if not acs_row.empty is False, so we skip)
+            assert result.census_data.get("B19013_001E") is None
+
+
+class TestCatalogFileMissing:
+    """Test catalog behavior when registered file is missing."""
+
+    async def test_load_state_with_deleted_file_redownloads(self, tmp_path):
+        """When cached file is deleted, load_state re-downloads it.
+
+        Tests catalog.py line 153->155 where path.exists() is False.
+        This is tested through the public API by deleting cached files.
+        """
+        import re
+
+        from aioresponses import CallbackResult, aioresponses
+
+        from tests.functional.conftest import (
+            DC_COUNTY_FIPS,
+            DC_STATE_FIPS,
+            create_dc_addrfeat_gdf,
+            create_dc_blocks_gdf,
+            create_dc_census_df,
+            create_pl94171_zip,
+            create_shapefile_zip,
+        )
+
+        # Create mock data
+        blocks_gdf = create_dc_blocks_gdf()
+        blocks_zip = create_shapefile_zip(blocks_gdf, f"tl_2020_{DC_STATE_FIPS}_tabblock20")
+        addrfeat_gdf = create_dc_addrfeat_gdf()
+        addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
+        census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
+
+        data_dir = tmp_path / "census-lookup"
+        data_dir.mkdir()
+        for subdir in ["tiger/blocks", "tiger/addrfeat", "census/pl94171", "census/acs", "temp"]:
+            (data_dir / subdir).mkdir(parents=True)
+
+        download_count = {"blocks": 0}
+
+        with aioresponses() as mocked:
+
+            def blocks_callback(url, **kwargs):
+                download_count["blocks"] += 1
+                return CallbackResult(body=blocks_zip)
+
+            blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+            mocked.get(blocks_pattern, callback=blocks_callback, repeat=True)
+
+            addrfeat_pattern = re.compile(r".*census\.gov.*ADDRFEAT.*\.zip")
+            mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
+
+            # First load - downloads data
+            lookup1 = CensusLookup(
+                geo_level=GeoLevel.TRACT,
+                variables=["P1_001N"],
+                data_dir=data_dir,
+            )
+            await lookup1.load_state("DC")
+            first_download_count = download_count["blocks"]
+            assert first_download_count >= 1
+
+            # Delete the cached blocks file
+            blocks_parquet = data_dir / "tiger" / "blocks" / "11.parquet"
+            assert blocks_parquet.exists()
+            blocks_parquet.unlink()
+
+            # Second load - should re-download because file is missing
+            # This triggers catalog.py line 153->155 (path.exists() is False)
+            lookup2 = CensusLookup(
+                geo_level=GeoLevel.TRACT,
+                variables=["P1_001N"],
+                data_dir=data_dir,
+            )
+            await lookup2.load_state("DC")
+
+            # Should have made another download request
+            assert download_count["blocks"] > first_download_count

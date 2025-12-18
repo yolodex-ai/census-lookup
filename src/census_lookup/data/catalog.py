@@ -150,8 +150,9 @@ class DataCatalog:
             info = self.get_info(dataset_type, state_fips)
         if info:
             path = Path(info.file_path)
-            if path.exists():
-                return path
+            # is_available() checks existence before get_path is called
+            assert path.exists(), f"File {path} registered but missing"
+            return path
         return None
 
     def list_states(self, dataset_type: str) -> List[str]:

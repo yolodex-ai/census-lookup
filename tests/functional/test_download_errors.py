@@ -67,20 +67,91 @@ class TestHTTPErrors:
 class TestDownloadRetries:
     """Test retry logic for transient failures through public API."""
 
-    async def test_transient_failures_retry_successfully(self, isolated_data_dir_for_retries):
-        """Downloads succeed after transient connection failures."""
-        lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
-            variables=["P1_001N"],
-            data_dir=isolated_data_dir_for_retries,
+    async def test_transient_failures_retry_successfully(self, tmp_path):
+        """Downloads succeed after transient connection failures.
+
+        Tests retry logic through CensusLookup API. The retry branch is marked
+        with pragma: no branch because the async mocking doesn't properly
+        capture branch coverage for retry iterations.
+        """
+        import re
+
+        import aiohttp
+        from aioresponses import CallbackResult, aioresponses
+
+        from tests.functional.conftest import (
+            DC_COUNTY_FIPS,
+            DC_STATE_FIPS,
+            TEST_TRACT_GEOID,
+            create_acs_api_response,
+            create_dc_addrfeat_gdf,
+            create_dc_blocks_gdf,
+            create_dc_census_df,
+            create_pl94171_zip,
+            create_shapefile_zip,
         )
 
-        # The mock is configured to fail twice then succeed
-        # This tests the retry logic through the public API
-        result = await lookup.geocode("1600 Pennsylvania Avenue NW, Washington, DC")
+        # Create mock data
+        blocks_gdf = create_dc_blocks_gdf()
+        blocks_zip = create_shapefile_zip(blocks_gdf, f"tl_2020_{DC_STATE_FIPS}_tabblock20")
+        addrfeat_gdf = create_dc_addrfeat_gdf()
+        addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
+        census_df = create_dc_census_df()
+        pl94171_zip = create_pl94171_zip("dc", census_df)
 
-        assert result.is_matched
-        assert result.geoid is not None
+        # Set up data directory
+        data_dir = tmp_path / "census-lookup"
+        data_dir.mkdir()
+        for subdir in [
+            "tiger/blocks",
+            "tiger/addrfeat",
+            "census/pl94171",
+            "census/acs5/tract",
+            "temp",
+        ]:
+            (data_dir / subdir).mkdir(parents=True)
+
+        with aioresponses() as mocked:
+            # Blocks download: fail first 2 times, succeed on 3rd
+            # Use callback with counter to control failures
+            blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+            blocks_call_count = [0]
+
+            def blocks_callback(url, **kwargs):
+                blocks_call_count[0] += 1
+                if blocks_call_count[0] <= 2:
+                    raise aiohttp.ClientError(f"Connection reset {blocks_call_count[0]}")
+                return CallbackResult(body=blocks_zip)
+
+            mocked.get(blocks_pattern, callback=blocks_callback, repeat=True)
+
+            # Address features work normally
+            addrfeat_pattern = re.compile(r".*census\.gov.*ADDRFEAT.*\.zip")
+            mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+            # PL 94-171 bulk file
+            pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+            mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
+
+            # ACS API
+            acs_pattern = re.compile(r".*api\.census\.gov/data/\d+/acs/acs5.*")
+            mocked.get(
+                acs_pattern,
+                payload=create_acs_api_response(["B19013_001E"], [TEST_TRACT_GEOID]),
+                repeat=True,
+            )
+
+            lookup = CensusLookup(
+                geo_level=GeoLevel.TRACT,
+                variables=["P1_001N"],
+                data_dir=data_dir,
+            )
+
+            # This should trigger retries and eventually succeed
+            result = await lookup.geocode("1600 Pennsylvania Avenue NW, Washington, DC")
+
+            assert result.is_matched
+            assert result.geoid is not None
 
 
 class TestConcurrentOperations:

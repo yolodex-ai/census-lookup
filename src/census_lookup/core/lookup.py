@@ -432,10 +432,11 @@ class CensusLookup:
                 components.state,
                 self._acs_variables,
             )
-            # Find matching tract
+            # Find matching tract - may be missing if ACS data is incomplete
             acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
             if not acs_row.empty:
                 for var in self._acs_variables:
+                    # Variable may be missing if API didn't return it
                     if var in acs_row.columns:
                         col = cast(pd.Series, acs_row[var])
                         raw_value: Any = col.iloc[0]
