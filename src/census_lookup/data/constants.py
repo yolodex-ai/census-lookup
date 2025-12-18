@@ -14,10 +14,6 @@ TIGER_URLS = {
     "faces": f"{TIGER_BASE_URL}/FACES/tl_2020_{{county_fips}}_faces.zip",
 }
 
-# Census API and data URLs
-CENSUS_API_BASE = "https://api.census.gov/data"
-CENSUS_PL94171_URL = f"{CENSUS_API_BASE}/2020/dec/pl"
-
 # State FIPS codes and names
 FIPS_STATES: Dict[str, str] = {
     "01": "Alabama",
@@ -237,16 +233,3 @@ def normalize_state(state: str) -> str:
         return STATE_NAMES[state_lower]
 
     raise ValueError(f"Unknown state: {state}")
-
-
-def get_state_name(fips: str) -> str:
-    """Get state name from FIPS code."""
-    return FIPS_STATES.get(fips, f"Unknown ({fips})")
-
-
-def get_state_abbrev(fips: str) -> str:
-    """Get state abbreviation from FIPS code."""
-    for abbrev, code in STATE_ABBREVS.items():
-        if code == fips:
-            return abbrev
-    return fips

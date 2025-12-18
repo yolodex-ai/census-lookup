@@ -83,24 +83,6 @@ class TIGERAddressMatcher:
                         self._zip_index[zipcode] = []
                     self._zip_index[zipcode].append(idx)
 
-    def geocode(self, address: str) -> GeocodingResult:
-        """
-        Geocode a full address string.
-
-        Args:
-            address: Full address string
-
-        Returns:
-            GeocodingResult with coordinates and match info
-        """
-        # Parse address
-        try:
-            parsed = self._parser.parse(address)
-        except Exception:
-            return GeocodingResult(match_type="no_match", match_score=0.0)
-
-        return self.geocode_parsed(parsed)
-
     def geocode_parsed(self, parsed: ParsedAddress) -> GeocodingResult:
         """
         Geocode a parsed address.
@@ -321,31 +303,3 @@ class TIGERAddressMatcher:
         # For most geocoding purposes, the centerline position is sufficient.
 
         return point
-
-    def geocode_batch(
-        self,
-        addresses: List[str],
-        show_progress: bool = False,
-    ) -> List[GeocodingResult]:
-        """
-        Geocode multiple addresses.
-
-        Args:
-            addresses: List of address strings
-            show_progress: Whether to show progress bar
-
-        Returns:
-            List of GeocodingResult objects
-        """
-        results = []
-
-        iterator = addresses
-        if show_progress:
-            from tqdm import tqdm
-
-            iterator = tqdm(addresses, desc="Geocoding")
-
-        for address in iterator:
-            results.append(self.geocode(address))
-
-        return results

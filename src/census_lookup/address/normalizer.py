@@ -425,55 +425,6 @@ class StreetNormalizer:
 
         return result
 
-    def normalize_for_tiger(
-        self,
-        street_name: str,
-        directional: Optional[str] = None,
-        street_type: Optional[str] = None,
-    ) -> str:
-        """
-        Normalize to match TIGER naming conventions.
-
-        TIGER uses uppercase names with specific patterns.
-        This normalizes for matching against TIGER FULLNAME field.
-
-        Args:
-            street_name: Street name
-            directional: Pre-directional (N, S, E, W, etc.)
-            street_type: Street type (Ave, St, etc.)
-
-        Returns:
-            Normalized string matching TIGER format
-        """
-        parts = []
-
-        # Pre-directional
-        if directional:
-            dir_upper = directional.upper().strip()
-            # TIGER typically uses abbreviated directionals
-            if dir_upper in self.DIRECTIONALS:
-                parts.append(dir_upper)  # Keep abbreviated
-            elif dir_upper in self.DIRECTIONALS_ABBREV:
-                parts.append(self.DIRECTIONALS_ABBREV[dir_upper])
-            else:
-                parts.append(dir_upper)
-
-        # Street name (normalize but don't expand)
-        if street_name:
-            name = self.normalize(street_name, expand_abbreviations=False)
-            parts.append(name)
-
-        # Street type
-        if street_type:
-            type_upper = street_type.upper().strip()
-            # TIGER uses full form for street types
-            if type_upper in self.STREET_TYPES:
-                parts.append(self.STREET_TYPES[type_upper])
-            else:
-                parts.append(type_upper)
-
-        return " ".join(parts)
-
     def generate_variants(self, street_name: str) -> list:
         """
         Generate possible variants of a street name for fuzzy matching.

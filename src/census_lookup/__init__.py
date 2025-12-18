@@ -22,8 +22,9 @@ from census_lookup.census.variables import (
     list_tables,
     list_variable_groups,
 )
-from census_lookup.core.geoid import GEOIDParser, GeoLevel
+from census_lookup.core.geoid import GeoLevel
 from census_lookup.core.lookup import CensusLookup, LookupResult
+from census_lookup.data.downloader import DownloadError
 
 __version__ = "0.1.0"
 __all__ = [
@@ -31,7 +32,8 @@ __all__ = [
     "CensusLookup",
     "LookupResult",
     "GeoLevel",
-    "GEOIDParser",
+    # Exceptions
+    "DownloadError",
     # PL 94-171 Variables
     "VARIABLES",
     "VARIABLE_GROUPS",

@@ -365,26 +365,6 @@ DEFAULT_ACS_VARIABLES: List[str] = [
 ]
 
 
-def get_acs_variable_info(variable: str) -> Dict[str, str]:
-    """
-    Get description and metadata for an ACS variable.
-
-    Args:
-        variable: Variable code (e.g., "B19013_001E")
-
-    Returns:
-        Dictionary with variable info
-    """
-    table = variable.split("_")[0] if "_" in variable else variable[:6]
-    return {
-        "code": variable,
-        "description": ACS_VARIABLES.get(variable, "Unknown variable"),
-        "table": table,
-        "is_estimate": variable.endswith("E"),
-        "is_moe": variable.endswith("M"),
-    }
-
-
 def get_acs_variables_for_group(group: str) -> List[str]:
     """
     Get list of ACS variables for a named group.
@@ -444,8 +424,3 @@ def list_acs_variable_groups() -> Dict[str, str]:
         "internet": "Internet access and computer ownership",
         "vehicles": "Vehicles available per household",
     }
-
-
-def get_acs_api_endpoint(year: int = 2020) -> str:
-    """Get the Census API endpoint for ACS 5-Year estimates."""
-    return f"https://api.census.gov/data/{year}/acs/acs5"

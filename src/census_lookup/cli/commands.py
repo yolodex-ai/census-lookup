@@ -1,5 +1,6 @@
 """CLI commands for census-lookup."""
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Optional
@@ -50,6 +51,13 @@ def cli():
 )
 def lookup(address: str, level: str, variables: tuple, output_format: str, no_download: bool):
     """Look up census data for a single address."""
+    asyncio.run(_lookup_async(address, level, variables, output_format, no_download))
+
+
+async def _lookup_async(
+    address: str, level: str, variables: tuple, output_format: str, no_download: bool
+):
+    """Async implementation of lookup command."""
     geo_level = GeoLevel[level.upper()]
 
     lookup_instance = CensusLookup(
@@ -58,14 +66,17 @@ def lookup(address: str, level: str, variables: tuple, output_format: str, no_do
         auto_download=not no_download,
     )
 
-    result = lookup_instance.geocode(address)
+    try:
+        result = await lookup_instance.geocode(address)
 
-    if output_format == "json":
-        click.echo(json.dumps(result.to_dict(), indent=2, default=str))
-    elif output_format == "csv":
-        click.echo(result.to_series().to_csv())
-    else:
-        _print_result_table(result)
+        if output_format == "json":
+            click.echo(json.dumps(result.to_dict(), indent=2, default=str))
+        elif output_format == "csv":
+            click.echo(result.to_series().to_csv())
+        else:
+            _print_result_table(result)
+    finally:
+        await lookup_instance.close()
 
 
 def _print_result_table(result):
@@ -121,16 +132,27 @@ def batch(
     variables: tuple,
     no_download: bool,
 ):
-    """Process a batch of addresses from CSV/Excel file."""
+    """Process a batch of addresses from CSV file."""
+    asyncio.run(
+        _batch_async(input_file, output_file, address_column, level, variables, no_download)
+    )
+
+
+async def _batch_async(
+    input_file: str,
+    output_file: str,
+    address_column: str,
+    level: str,
+    variables: tuple,
+    no_download: bool,
+):
+    """Async implementation of batch command."""
     input_path = Path(input_file)
 
     # Read input
-    if input_path.suffix == ".csv":
-        df = pd.read_csv(input_path)
-    elif input_path.suffix in [".xlsx", ".xls"]:
-        df = pd.read_excel(input_path)
-    else:
-        raise click.ClickException(f"Unsupported file format: {input_path.suffix}")
+    if input_path.suffix != ".csv":
+        raise click.ClickException(f"Unsupported file format: {input_path.suffix}. Only CSV is supported.")
+    df = pd.read_csv(input_path)
 
     if address_column not in df.columns:
         raise click.ClickException(f"Column '{address_column}' not found in input file")
@@ -143,28 +165,33 @@ def batch(
         auto_download=not no_download,
     )
 
-    results = lookup_instance.geocode_batch(
-        df[address_column],
-        progress=True,
-    )
+    try:
+        results = await lookup_instance.geocode_batch(
+            df[address_column],
+            progress=True,
+        )
 
-    # Merge results with original data
-    output_df = pd.concat([df.reset_index(drop=True), results.reset_index(drop=True)], axis=1)
+        # Merge results with original data
+        output_df = pd.concat(
+            [df.reset_index(drop=True), results.reset_index(drop=True)], axis=1
+        )
 
-    # Save
-    output_path = Path(output_file)
-    if output_path.suffix == ".csv":
-        output_df.to_csv(output_path, index=False)
-    elif output_path.suffix == ".parquet":
-        output_df.to_parquet(output_path)
-    else:
-        output_df.to_csv(output_path, index=False)
+        # Save
+        output_path = Path(output_file)
+        if output_path.suffix == ".csv":
+            output_df.to_csv(output_path, index=False)
+        elif output_path.suffix == ".parquet":
+            output_df.to_parquet(output_path)
+        else:
+            output_df.to_csv(output_path, index=False)
 
-    click.echo(f"Processed {len(df)} addresses -> {output_file}")
+        click.echo(f"Processed {len(df)} addresses -> {output_file}")
 
-    # Summary
-    matched = results["match_type"].isin(["interpolated", "exact"]).sum()
-    click.echo(f"Matched: {matched}/{len(df)} ({100*matched/len(df):.1f}%)")
+        # Summary
+        matched = results["match_type"].isin(["interpolated", "exact"]).sum()
+        click.echo(f"Matched: {matched}/{len(df)} ({100*matched/len(df):.1f}%)")
+    finally:
+        await lookup_instance.close()
 
 
 @cli.command()
@@ -172,6 +199,11 @@ def batch(
 @click.option("--all", "download_all", is_flag=True, help="Download data for all states")
 def download(states: tuple, download_all: bool):
     """Pre-download data for specified states."""
+    asyncio.run(_download_async(states, download_all))
+
+
+async def _download_async(states: tuple, download_all: bool):
+    """Async implementation of download command."""
     manager = DataManager()
 
     if download_all:
@@ -180,17 +212,20 @@ def download(states: tuple, download_all: bool):
     if not states:
         raise click.ClickException("Specify state(s) to download or use --all")
 
-    for state in states:
-        try:
-            state_fips = normalize_state(state)
-            state_name = FIPS_STATES.get(state_fips, state)
-            click.echo(f"\nDownloading data for {state_name} ({state_fips})...")
-            manager.ensure_state_data(state_fips, show_progress=True)
-            click.echo("  Done.")
-        except Exception as e:
-            click.echo(f"  Error: {e}", err=True)
+    try:
+        for state in states:
+            try:
+                state_fips = normalize_state(state)
+                state_name = FIPS_STATES.get(state_fips, state)
+                click.echo(f"\nDownloading data for {state_name} ({state_fips})...")
+                await manager.ensure_state_data(state_fips, show_progress=True)
+                click.echo("  Done.")
+            except Exception as e:
+                click.echo(f"  Error: {e}", err=True)
 
-    click.echo("\nDownload complete!")
+        click.echo("\nDownload complete!")
+    finally:
+        await manager.close()
 
 
 @cli.command()
@@ -279,6 +314,13 @@ def clear(state: Optional[str]):
 @click.option("--no-download", is_flag=True, help="Don't auto-download missing data")
 def coords(lat: float, lon: float, level: str, variables: tuple, no_download: bool):
     """Look up census data for coordinates (lat, lon)."""
+    asyncio.run(_coords_async(lat, lon, level, variables, no_download))
+
+
+async def _coords_async(
+    lat: float, lon: float, level: str, variables: tuple, no_download: bool
+):
+    """Async implementation of coords command."""
     geo_level = GeoLevel[level.upper()]
 
     lookup_instance = CensusLookup(
@@ -287,16 +329,19 @@ def coords(lat: float, lon: float, level: str, variables: tuple, no_download: bo
         auto_download=not no_download,
     )
 
-    # Need to load states that might contain these coordinates
-    click.echo("Attempting to find containing state...")
+    try:
+        # Need to load states that might contain these coordinates
+        click.echo("Attempting to find containing state...")
 
-    result = lookup_instance.lookup_coordinates(lat, lon)
+        result = await lookup_instance.lookup_coordinates(lat, lon)
 
-    if result.is_matched:
-        click.echo(json.dumps(result.to_dict(), indent=2, default=str))
-    else:
-        click.echo("No census block found for these coordinates.")
-        click.echo("Try loading the appropriate state first: census-lookup download <state>")
+        if result.is_matched:
+            click.echo(json.dumps(result.to_dict(), indent=2, default=str))
+        else:
+            click.echo("No census block found for these coordinates.")
+            click.echo("Try loading the appropriate state first: census-lookup download <state>")
+    finally:
+        await lookup_instance.close()
 
 
 if __name__ == "__main__":

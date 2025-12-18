@@ -103,23 +103,6 @@ DEFAULT_VARIABLES: List[str] = [
 ]
 
 
-def get_variable_info(variable: str) -> Dict[str, str]:
-    """
-    Get description and metadata for a variable.
-
-    Args:
-        variable: Variable code (e.g., "P1_001N")
-
-    Returns:
-        Dictionary with variable info
-    """
-    return {
-        "code": variable,
-        "description": VARIABLES.get(variable, "Unknown variable"),
-        "table": variable[:2] if variable else "",  # P1, P2, H1, etc.
-    }
-
-
 def get_variables_for_group(group: str) -> List[str]:
     """
     Get list of variables for a named group.

@@ -44,11 +44,6 @@ class ParsedAddress:
         """Check if we have enough street information for geocoding."""
         return bool(self.street_name and self.house_number)
 
-    @property
-    def has_location_info(self) -> bool:
-        """Check if we have city/state/zip for filtering."""
-        return bool(self.city or self.state or self.zipcode)
-
     def to_dict(self) -> Dict[str, Optional[str]]:
         """Convert to dictionary."""
         return {
@@ -119,7 +114,7 @@ class AddressParser:
             raise AddressParseError(address, "Empty address")
 
         try:
-            tagged, addr_type = usaddress.tag(address)
+            tagged, _ = usaddress.tag(address)
             return self._to_parsed_address(tagged)
         except usaddress.RepeatedLabelError:
             # Handle repeated labels by using parse() instead
@@ -151,22 +146,3 @@ class AddressParser:
                 grouped[label] += " " + value
 
         return self._to_parsed_address(grouped)
-
-    def parse_batch(self, addresses: List[str]) -> List[ParsedAddress]:
-        """
-        Parse multiple addresses.
-
-        Args:
-            addresses: List of address strings
-
-        Returns:
-            List of ParsedAddress objects (empty ParsedAddress for failures)
-        """
-        results = []
-        for addr in addresses:
-            try:
-                results.append(self.parse(addr))
-            except AddressParseError:
-                # Return empty parsed address for failures
-                results.append(ParsedAddress())
-        return results

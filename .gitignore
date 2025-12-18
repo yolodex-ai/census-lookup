@@ -72,3 +72,6 @@ Thumbs.db
 
 # Project specific
 .serena/
+coverage*.json
+*_cov.json
+vulture_whitelist.py

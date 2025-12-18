@@ -1,5 +1,6 @@
 """Main CensusLookup class - the primary user interface."""
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -80,10 +81,12 @@ class CensusLookup:
     """
     Main interface for census-lookup library.
 
+    All methods are async for efficient concurrent operation.
+
     Example usage:
         >>> lookup = CensusLookup()
-        >>> lookup.load_state("CA")  # Lazy download if needed
-        >>> result = lookup.geocode("123 Main St, Los Angeles, CA 90012")
+        >>> await lookup.load_state("CA")  # Lazy download if needed
+        >>> result = await lookup.geocode("123 Main St, Los Angeles, CA 90012")
         >>> print(result.geoid, result.census_data)
     """
 
@@ -133,6 +136,10 @@ class CensusLookup:
         # Shared components
         self._parser = AddressParser()
 
+    async def close(self):
+        """Close all async sessions."""
+        await self._data_manager.close()
+
     def _resolve_variables(
         self,
         variables: Optional[List[str]],
@@ -171,7 +178,7 @@ class CensusLookup:
 
         return sorted(result)
 
-    def load_state(self, state: str, force_download: bool = False) -> None:
+    async def load_state(self, state: str, force_download: bool = False) -> None:
         """
         Load data for a state (downloads if not cached).
 
@@ -185,11 +192,11 @@ class CensusLookup:
             return
 
         # Ensure data is downloaded
-        self._data_manager.ensure_state_data(state_fips, show_progress=True)
+        await self._data_manager.ensure_state_data(state_fips, show_progress=True)
 
         # Also download ACS data if ACS variables are requested
         if self._acs_variables:
-            self._data_manager.ensure_acs_data(
+            await self._data_manager.ensure_acs_data(
                 state_fips,
                 variables=self._acs_variables,
                 geo_level="tract",  # ACS is at tract level
@@ -197,11 +204,11 @@ class CensusLookup:
             )
 
         # Load blocks for spatial lookup
-        blocks = self._data_manager.get_blocks(state_fips)
+        blocks = await self._data_manager.get_blocks(state_fips)
         spatial_index = SpatialIndex(blocks, geoid_column="GEOID20")
 
         # Load address features for geocoding
-        addr_features = self._data_manager.get_address_features(state_fips)
+        addr_features = await self._data_manager.get_address_features(state_fips)
         geocoder = TIGERAddressMatcher(addr_features)
 
         self._loaded_states[state_fips] = {
@@ -209,16 +216,15 @@ class CensusLookup:
             "geocoder": geocoder,
         }
 
-    def load_states(self, states: List[str]) -> None:
-        """Load multiple states."""
-        for state in states:
-            self.load_state(state)
+    async def load_states(self, states: List[str]) -> None:
+        """Load multiple states concurrently."""
+        await asyncio.gather(*[self.load_state(state) for state in states])
 
-    def _ensure_state_loaded(self, state_fips: str) -> None:
+    async def _ensure_state_loaded(self, state_fips: str) -> None:
         """Ensure a state is loaded, loading it if necessary."""
         if state_fips not in self._loaded_states:
             if self.auto_download:
-                self.load_state(state_fips)
+                await self.load_state(state_fips)
             else:
                 raise ValueError(
                     f"State {state_fips} not loaded. "
@@ -234,7 +240,7 @@ class CensusLookup:
                 pass
         return None
 
-    def geocode(
+    async def geocode(
         self,
         address: str,
         geo_level: Optional[GeoLevel] = None,
@@ -271,7 +277,7 @@ class CensusLookup:
 
         # Ensure state is loaded
         try:
-            self._ensure_state_loaded(state_fips)
+            await self._ensure_state_loaded(state_fips)
         except ValueError:
             return LookupResult(
                 input_address=address,
@@ -321,7 +327,7 @@ class CensusLookup:
         if self._acs_variables:
             tract_geoid = block_geoid[:11]  # Truncate to tract level
             try:
-                acs_df = self._data_manager.get_acs_data(
+                acs_df = await self._data_manager.get_acs_data(
                     components.state,
                     self._acs_variables,
                     GeoLevel.TRACT,
@@ -354,14 +360,14 @@ class CensusLookup:
             census_data=census_data,
         )
 
-    def geocode_batch(
+    async def geocode_batch(
         self,
         addresses: Union[List[str], pd.Series],
         geo_level: Optional[GeoLevel] = None,
         progress: bool = True,
     ) -> pd.DataFrame:
         """
-        Geocode multiple addresses efficiently.
+        Geocode multiple addresses concurrently.
 
         Args:
             addresses: List or Series of address strings
@@ -374,21 +380,25 @@ class CensusLookup:
         if isinstance(addresses, pd.Series):
             addresses = addresses.tolist()
 
-        results = []
+        # Geocode all addresses concurrently
+        tasks = [self.geocode(address, geo_level) for address in addresses]
 
-        iterator = addresses
         if progress:
             from tqdm import tqdm
 
-            iterator = tqdm(addresses, desc="Geocoding")
-
-        for address in iterator:
-            result = self.geocode(address, geo_level)
-            results.append(result.to_dict())
+            results = []
+            with tqdm(total=len(tasks), desc="Geocoding") as pbar:
+                for coro in asyncio.as_completed(tasks):
+                    result = await coro
+                    results.append(result.to_dict())
+                    pbar.update(1)
+        else:
+            results_list = await asyncio.gather(*tasks)
+            results = [r.to_dict() for r in results_list]
 
         return pd.DataFrame(results)
 
-    def lookup_coordinates(
+    async def lookup_coordinates(
         self,
         lat: float,
         lon: float,
@@ -440,7 +450,7 @@ class CensusLookup:
         if self._acs_variables:
             tract_geoid = block_geoid[:11]  # Truncate to tract level
             try:
-                acs_df = self._data_manager.get_acs_data(
+                acs_df = await self._data_manager.get_acs_data(
                     components.state,
                     self._acs_variables,
                     GeoLevel.TRACT,
@@ -470,7 +480,7 @@ class CensusLookup:
             census_data=census_data,
         )
 
-    def lookup_coordinates_batch(
+    async def lookup_coordinates_batch(
         self,
         df: pd.DataFrame,
         lat_column: str = "latitude",

@@ -74,12 +74,15 @@ class GeoParquetConverter:
         Convert block shapefile to GeoParquet with essential columns only.
 
         Essential columns for blocks:
-        - GEOID20: Block GEOID
+        - GEOID20: Block GEOID (15-digit string)
         - STATEFP20: State FIPS
         - COUNTYFP20: County FIPS
         - TRACTCE20: Tract code
         - BLOCKCE20: Block code
         - geometry: Polygon geometry
+
+        Raises:
+            ValueError: If GEOID20 values are not valid 15-digit strings
         """
         columns = [
             "GEOID20",
@@ -91,7 +94,35 @@ class GeoParquetConverter:
             "AWATER20",  # Water area
             "geometry",
         ]
-        return self.convert_shapefile(shapefile_path, output_path, columns)
+
+        # Load and validate
+        if shapefile_path.is_dir():
+            shp_files = list(shapefile_path.glob("*.shp"))
+            if not shp_files:
+                raise FileNotFoundError(f"No .shp file found in {shapefile_path}")
+            shapefile_path = shp_files[0]
+
+        gdf = gpd.read_file(shapefile_path)
+
+        # Validate GEOID20 format
+        invalid_geoids = gdf[
+            ~gdf["GEOID20"].str.match(r"^\d{15}$", na=False)
+        ]
+        if not invalid_geoids.empty:
+            samples = invalid_geoids["GEOID20"].head(5).tolist()
+            raise ValueError(
+                f"Invalid GEOID20 values in block data (expected 15 digits): {samples}"
+            )
+
+        # Filter columns
+        columns = list(set(columns) | {"geometry"})
+        existing_cols = [c for c in columns if c in gdf.columns]
+        gdf = gdf[existing_cols]
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        gdf.to_parquet(output_path, compression=self.compression)
+
+        return output_path
 
     def convert_address_features(
         self,

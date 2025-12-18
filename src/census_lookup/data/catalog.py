@@ -197,40 +197,6 @@ class DataCatalog:
                 states.add(info.state_fips)
         return sorted(states)
 
-    def list_counties(self, dataset_type: str, state_fips: str) -> List[str]:
-        """
-        List counties with available data for a dataset type and state.
-
-        Args:
-            dataset_type: Type of dataset
-            state_fips: State FIPS code
-
-        Returns:
-            List of county FIPS codes
-        """
-        counties = []
-        for key, info in self._data.datasets.items():
-            if (
-                info.dataset_type == dataset_type
-                and info.state_fips == state_fips
-                and info.county_fips
-            ):
-                counties.append(info.county_fips)
-        return sorted(counties)
-
-    def get_total_size(self) -> int:
-        """Get total size of all registered datasets in bytes."""
-        return sum(info.file_size for info in self._data.datasets.values())
-
-    def get_size_by_type(self) -> Dict[str, int]:
-        """Get total size grouped by dataset type."""
-        sizes: Dict[str, int] = {}
-        for info in self._data.datasets.values():
-            if info.dataset_type not in sizes:
-                sizes[info.dataset_type] = 0
-            sizes[info.dataset_type] += info.file_size
-        return sizes
-
     def clear(self, dataset_type: Optional[str] = None, state_fips: Optional[str] = None) -> None:
         """
         Clear catalog entries.
