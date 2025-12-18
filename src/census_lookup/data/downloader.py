@@ -384,8 +384,10 @@ class CensusDataDownloader:
         # Batch variables into groups of 50
         var_batches = [variables[i : i + 50] for i in range(0, len(variables), 50)]
 
-        # Download batches concurrently with streaming progress
-        async def fetch_batch(batch: List[str], pbar: Optional[tqdm] = None) -> Any:
+        # Download batches concurrently with streaming progress and retry logic
+        async def fetch_batch(
+            batch: List[str], pbar: Optional[tqdm] = None, max_retries: int = 3
+        ) -> Any:
             params = {
                 "get": ",".join(["GEO_ID"] + batch),
                 "for": geo_params["for"],
@@ -393,24 +395,44 @@ class CensusDataDownloader:
             }
 
             url = f"{self.API_BASE}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
-            async with session.get(url) as response:
-                response.raise_for_status()
 
-                # Stream the response to show byte progress
-                if pbar is not None:
-                    total = response.content_length
-                    if total:
-                        pbar.total = total
-                        pbar.refresh()
+            for attempt in range(max_retries):
+                try:
+                    async with session.get(url) as response:
+                        response.raise_for_status()
 
-                    chunks = []
-                    async for chunk in response.content.iter_any():
-                        chunks.append(chunk)
-                        pbar.update(len(chunk))
+                        # Stream the response to show byte progress
+                        if pbar is not None:
+                            total = response.content_length
+                            if total:
+                                pbar.total = total
+                                pbar.refresh()
 
-                    return json.loads(b"".join(chunks))
-                else:
-                    return await response.json()
+                            chunks = []
+                            async for chunk in response.content.iter_any():
+                                chunks.append(chunk)
+                                pbar.update(len(chunk))
+
+                            return json.loads(b"".join(chunks))
+                        else:
+                            return await response.json()
+                except (
+                    aiohttp.ClientPayloadError,
+                    aiohttp.ClientConnectionError,
+                    asyncio.TimeoutError,
+                ) as e:
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        if pbar:
+                            pbar.set_description(
+                                f"  Retry {attempt + 1}/{max_retries} in {wait_time}s"
+                            )
+                        await asyncio.sleep(wait_time)
+                        if pbar:
+                            pbar.set_description("  Fetching from Census API")
+                            pbar.reset()
+                    else:
+                        raise e
 
         # PL 94-171 has <50 variables, so only one batch typically
         if show_progress:
