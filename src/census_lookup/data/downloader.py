@@ -338,6 +338,7 @@ class CensusDataDownloader:
         state_fips: str,
         variables: List[str],
         dest_path: Path,
+        show_progress: bool = True,
     ) -> Path:
         """
         Download PL 94-171 data for a state via Census API (block level).
@@ -349,6 +350,7 @@ class CensusDataDownloader:
             state_fips: 2-digit state FIPS code
             variables: List of variable codes to download
             dest_path: Output path for CSV file
+            show_progress: Show elapsed time indicator
 
         Returns:
             Path to downloaded CSV file
@@ -356,7 +358,9 @@ class CensusDataDownloader:
         resource_key = f"pl94171/{state_fips}/block"
 
         async def do_download() -> Path:
-            return await self._download_pl94171(state_fips, variables, dest_path)
+            return await self._download_pl94171(
+                state_fips, variables, dest_path, show_progress=show_progress
+            )
 
         result = await _coordinator.download_once(resource_key, do_download)
         assert result is not None  # do_download always returns Path
@@ -367,6 +371,7 @@ class CensusDataDownloader:
         state_fips: str,
         variables: List[str],
         dest_path: Path,
+        show_progress: bool = True,
     ) -> Path:
         """Internal implementation for PL 94-171 download (block level only)."""
         import pandas as pd
@@ -391,7 +396,14 @@ class CensusDataDownloader:
                 return await response.json()
 
         tasks = [fetch_batch(batch) for batch in var_batches]
-        all_data = await asyncio.gather(*tasks)
+
+        # Show spinner while waiting for Census API (can take minutes for large states)
+        if show_progress:
+            pbar = tqdm(total=0, desc="  Fetching from Census API", bar_format="{desc}: {elapsed}")
+            all_data = await asyncio.gather(*tasks)
+            pbar.close()
+        else:
+            all_data = await asyncio.gather(*tasks)
 
         # PL 94-171 has <50 variables, so only one batch
         data = all_data[0]

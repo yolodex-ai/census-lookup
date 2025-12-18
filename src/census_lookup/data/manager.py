@@ -221,6 +221,7 @@ class DataManager:
                 state_fips,
                 variables=DEFAULT_VARIABLES,
                 dest_path=csv_path,
+                show_progress=show_progress,
             )
 
             # Convert to parquet
