@@ -374,6 +374,8 @@ class CensusDataDownloader:
         show_progress: bool = True,
     ) -> Path:
         """Internal implementation for PL 94-171 download (block level only)."""
+        import json
+
         import pandas as pd
 
         session = await self._get_session()
@@ -382,8 +384,8 @@ class CensusDataDownloader:
         # Batch variables into groups of 50
         var_batches = [variables[i : i + 50] for i in range(0, len(variables), 50)]
 
-        # Download batches concurrently
-        async def fetch_batch(batch: List[str]):
+        # Download batches concurrently with streaming progress
+        async def fetch_batch(batch: List[str], pbar: Optional[tqdm] = None) -> Any:
             params = {
                 "get": ",".join(["GEO_ID"] + batch),
                 "for": geo_params["for"],
@@ -393,19 +395,39 @@ class CensusDataDownloader:
             url = f"{self.API_BASE}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
             async with session.get(url) as response:
                 response.raise_for_status()
-                return await response.json()
 
-        tasks = [fetch_batch(batch) for batch in var_batches]
+                # Stream the response to show byte progress
+                if pbar is not None:
+                    total = response.content_length
+                    if total:
+                        pbar.total = total
+                        pbar.refresh()
 
-        # Show spinner while waiting for Census API (can take minutes for large states)
+                    chunks = []
+                    async for chunk in response.content.iter_any():
+                        chunks.append(chunk)
+                        pbar.update(len(chunk))
+
+                    return json.loads(b"".join(chunks))
+                else:
+                    return await response.json()
+
+        # PL 94-171 has <50 variables, so only one batch typically
         if show_progress:
-            pbar = tqdm(total=0, desc="  Fetching from Census API", bar_format="{desc}: {elapsed}")
+            pbar = tqdm(
+                total=0,
+                desc="  Fetching from Census API",
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+            )
+            tasks = [fetch_batch(batch, pbar) for batch in var_batches]
             all_data = await asyncio.gather(*tasks)
             pbar.close()
         else:
+            tasks = [fetch_batch(batch, None) for batch in var_batches]
             all_data = await asyncio.gather(*tasks)
 
-        # PL 94-171 has <50 variables, so only one batch
         data = all_data[0]
         result = pd.DataFrame(data[1:], columns=data[0])
 
