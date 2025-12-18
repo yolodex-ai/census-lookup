@@ -133,7 +133,7 @@ STATE_NAMES: Dict[str, str] = {name.lower(): fips for fips, name in FIPS_STATES.
 # County FIPS codes by state (3-digit county codes)
 # Source: Census Bureau FIPS codes
 # Only includes states with actual address feature files available
-STATE_COUNTIES: Dict[str, list] = {
+STATE_COUNTIES: Dict[str, list[str]] = {
     "01": ["001", "003", "005", "007", "009", "011", "013", "015", "017", "019", "021", "023", "025", "027", "029", "031", "033", "035", "037", "039", "041", "043", "045", "047", "049", "051", "053", "055", "057", "059", "061", "063", "065", "067", "069", "071", "073", "075", "077", "079", "081", "083", "085", "087", "089", "091", "093", "095", "097", "099", "101", "103", "105", "107", "109", "111", "113", "115", "117", "119", "121", "123", "125", "127", "129", "131", "133"],  # Alabama - 67 counties
     "02": ["013", "016", "020", "050", "060", "068", "070", "090", "100", "105", "110", "122", "130", "150", "158", "164", "170", "180", "185", "188", "195", "198", "220", "230", "240", "261", "270", "275", "282", "290"],  # Alaska - boroughs/census areas
     "04": ["001", "003", "005", "007", "009", "011", "012", "013", "015", "017", "019", "021", "023", "025", "027"],  # Arizona - 15 counties
@@ -189,7 +189,7 @@ STATE_COUNTIES: Dict[str, list] = {
 }
 
 
-def get_counties_for_state(state_fips: str) -> list:
+def get_counties_for_state(state_fips: str) -> list[str]:
     """
     Get list of county FIPS codes (3-digit) for a state.
 

@@ -13,7 +13,6 @@ class DatasetInfo:
 
     dataset_type: str  # "blocks", "addrfeat", "pl94171", etc.
     state_fips: str
-    county_fips: Optional[str]  # None for state-level datasets
     file_path: str
     downloaded_at: str  # ISO format datetime
     file_size: int  # bytes
@@ -27,13 +26,11 @@ class DatasetInfo:
         state_fips: str,
         file_path: Path,
         source_url: str,
-        county_fips: Optional[str] = None,
     ) -> "DatasetInfo":
         """Create a new DatasetInfo with current timestamp."""
         return cls(
             dataset_type=dataset_type,
             state_fips=state_fips,
-            county_fips=county_fips,
             file_path=str(file_path),
             downloaded_at=datetime.now().isoformat(),
             file_size=file_path.stat().st_size if file_path.exists() else 0,
@@ -92,15 +89,8 @@ class DataCatalog:
             }
             json.dump(data, f, indent=2)
 
-    def _make_key(
-        self,
-        dataset_type: str,
-        state_fips: str,
-        county_fips: Optional[str] = None,
-    ) -> str:
+    def _make_key(self, dataset_type: str, state_fips: str) -> str:
         """Create a unique key for a dataset."""
-        if county_fips:
-            return f"{dataset_type}:{state_fips}:{county_fips}"
         return f"{dataset_type}:{state_fips}"
 
     def register(self, info: DatasetInfo) -> None:
@@ -110,40 +100,29 @@ class DataCatalog:
         Args:
             info: Dataset metadata
         """
-        key = self._make_key(info.dataset_type, info.state_fips, info.county_fips)
+        key = self._make_key(info.dataset_type, info.state_fips)
         self._data.datasets[key] = info
         self._save()
 
-    def unregister(
-        self,
-        dataset_type: str,
-        state_fips: str,
-        county_fips: Optional[str] = None,
-    ) -> None:
+    def unregister(self, dataset_type: str, state_fips: str) -> None:
         """Remove a dataset from the catalog."""
-        key = self._make_key(dataset_type, state_fips, county_fips)
+        key = self._make_key(dataset_type, state_fips)
         if key in self._data.datasets:
             del self._data.datasets[key]
             self._save()
 
-    def is_available(
-        self,
-        dataset_type: str,
-        state_fips: str,
-        county_fips: Optional[str] = None,
-    ) -> bool:
+    def is_available(self, dataset_type: str, state_fips: str) -> bool:
         """
         Check if a dataset is available locally.
 
         Args:
             dataset_type: Type of dataset
             state_fips: State FIPS code
-            county_fips: Optional county FIPS code
 
         Returns:
             True if dataset is registered and file exists
         """
-        key = self._make_key(dataset_type, state_fips, county_fips)
+        key = self._make_key(dataset_type, state_fips)
         if key not in self._data.datasets:
             return False
 
@@ -152,29 +131,25 @@ class DataCatalog:
         path = Path(info.file_path)
         return path.exists()
 
-    def get_info(
-        self,
-        dataset_type: str,
-        state_fips: str,
-        county_fips: Optional[str] = None,
-    ) -> Optional[DatasetInfo]:
+    def get_info(self, dataset_type: str, state_fips: str) -> Optional[DatasetInfo]:
         """Get metadata for a dataset if available."""
-        key = self._make_key(dataset_type, state_fips, county_fips)
+        key = self._make_key(dataset_type, state_fips)
         return self._data.datasets.get(key)
 
-    def get_path(
-        self,
-        dataset_type: str,
-        state_fips: str,
-        county_fips: Optional[str] = None,
-    ) -> Optional[Path]:
+    def get_path(self, dataset_type: str, state_fips: str) -> Optional[Path]:
         """
         Get path to a dataset if available.
+
+        Reloads catalog from disk if entry not found (handles concurrent updates).
 
         Returns:
             Path to dataset file, or None if not available
         """
-        info = self.get_info(dataset_type, state_fips, county_fips)
+        info = self.get_info(dataset_type, state_fips)
+        if not info:
+            # Reload from disk in case another process/instance updated it
+            self._load()
+            info = self.get_info(dataset_type, state_fips)
         if info:
             path = Path(info.file_path)
             if path.exists():
@@ -192,28 +167,13 @@ class DataCatalog:
             List of state FIPS codes
         """
         states = set()
-        for key, info in self._data.datasets.items():
+        for _, info in self._data.datasets.items():
             if info.dataset_type == dataset_type:
                 states.add(info.state_fips)
         return sorted(states)
 
-    def clear(self, dataset_type: Optional[str] = None, state_fips: Optional[str] = None) -> None:
-        """
-        Clear catalog entries.
-
-        Args:
-            dataset_type: Filter by type (None for all)
-            state_fips: Filter by state (None for all)
-        """
-        keys_to_remove = []
-        for key, info in self._data.datasets.items():
-            if dataset_type and info.dataset_type != dataset_type:
-                continue
-            if state_fips and info.state_fips != state_fips:
-                continue
-            keys_to_remove.append(key)
-
-        for key in keys_to_remove:
-            del self._data.datasets[key]
+    def clear(self) -> None:
+        """Clear all catalog entries."""
+        self._data.datasets.clear()
 
         self._save()

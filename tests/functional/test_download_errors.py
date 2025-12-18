@@ -13,18 +13,8 @@ All HTTP calls are mocked using aioresponses.
 """
 
 import asyncio
-import io
-import re
-import tempfile
-import zipfile
-from pathlib import Path
-from urllib.parse import unquote
 
-import geopandas as gpd
-import pandas as pd
 import pytest
-from aioresponses import CallbackResult, aioresponses
-from shapely.geometry import LineString, Polygon
 
 from census_lookup import CensusLookup, DownloadError, GeoLevel
 
@@ -38,7 +28,7 @@ class TestHTTPErrors:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_404,
-            auto_download=True,
+
         )
 
         with pytest.raises(DownloadError) as exc_info:
@@ -53,7 +43,7 @@ class TestHTTPErrors:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_500,
-            auto_download=True,
+
         )
 
         # 500 errors get wrapped in DownloadError after retry exhaustion
@@ -68,7 +58,7 @@ class TestHTTPErrors:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_404,
-            auto_download=True,
+
         )
 
         with pytest.raises(DownloadError) as exc_info:
@@ -86,7 +76,7 @@ class TestDownloadRetries:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_retries,
-            auto_download=True,
+
         )
 
         # The mock is configured to fail twice then succeed
@@ -106,7 +96,7 @@ class TestConcurrentOperations:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
+
         )
 
         # Pre-load to avoid race condition
@@ -141,7 +131,7 @@ class TestDataValidation:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_invalid_geoid,
-            auto_download=True,
+
         )
 
         with pytest.raises(ValueError, match="Invalid GEOID20"):
@@ -151,7 +141,9 @@ class TestDataValidation:
 class TestConcurrentDownloadCoordination:
     """Test that concurrent downloads work correctly."""
 
-    async def test_sequential_load_then_concurrent_geocodes(self, mock_census_http, isolated_data_dir):
+    async def test_sequential_load_then_concurrent_geocodes(
+        self, mock_census_http, isolated_data_dir
+    ):
         """Sequential load followed by concurrent geocodes works.
 
         This tests that after loading state data, multiple concurrent
@@ -161,7 +153,7 @@ class TestConcurrentDownloadCoordination:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
+
         )
 
         # Load state data first (single call)
@@ -203,7 +195,7 @@ class TestConcurrentDownloadCoordination:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-            auto_download=True,
+
         )
 
         # Load state (this tests the download path)
@@ -236,14 +228,14 @@ class TestConcurrentDownloadCoordination:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-            auto_download=True,
+
         )
 
         lookup2 = CensusLookup(
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-            auto_download=True,
+
         )
 
         # Start both load_state calls concurrently
@@ -281,7 +273,7 @@ class TestRetryExhaustion:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir_for_connection_errors,
-            auto_download=True,
+
         )
 
         # Should fail after exhausting retries
@@ -305,7 +297,7 @@ class TestACSErrors:
             variables=["P1_001N"],
             acs_variables=["INVALID_VAR"],
             data_dir=isolated_data_dir_for_acs_400,
-            auto_download=True,
+
         )
 
         with pytest.raises(DownloadError) as exc_info:
@@ -324,7 +316,7 @@ class TestCacheHits:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
+
         )
 
         # First load - downloads data
@@ -336,7 +328,7 @@ class TestCacheHits:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
+
         )
 
         # This should not make HTTP requests - uses cached parquet files
@@ -350,6 +342,52 @@ class TestCacheHits:
         assert result2.is_matched
         assert result1.geoid == result2.geoid
 
+    async def test_same_instance_load_state_twice(self, mock_census_http, isolated_data_dir):
+        """Loading same state twice on same instance uses in-memory cache."""
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # First load
+        await lookup.load_state("DC")
+
+        # Second load on same instance - should hit in-memory cache
+        await lookup.load_state("DC")
+
+        # Should still work
+        result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+        assert result.is_matched
+
+    async def test_acs_data_cache_hit(self, mock_census_http, isolated_data_dir):
+        """Second lookup with ACS data uses catalog cache for ACS."""
+        lookup1 = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            acs_variables=["B19013_001E"],
+            data_dir=isolated_data_dir,
+        )
+
+        # First load downloads ACS data
+        await lookup1.load_state("DC")
+
+        # Second lookup instance with same data_dir should use cached ACS
+        lookup2 = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            acs_variables=["B19013_001E"],
+            data_dir=isolated_data_dir,
+        )
+        await lookup2.load_state("DC")
+
+        # Both should work
+        result1 = await lookup1.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+        result2 = await lookup2.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+
+        assert result1.is_matched
+        assert result2.is_matched
+        assert result1.census_data.get("B19013_001E") is not None
+        assert result2.census_data.get("B19013_001E") is not None
+
 
 class TestMultipleGeoLevels:
     """Test different geographic levels through the public API."""
@@ -360,7 +398,7 @@ class TestMultipleGeoLevels:
             geo_level=GeoLevel.BLOCK_GROUP,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
+
         )
 
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
@@ -376,7 +414,7 @@ class TestMultipleGeoLevels:
             geo_level=GeoLevel.COUNTY,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
+
         )
 
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
@@ -403,7 +441,7 @@ class TestAlreadyExtracted:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=data_dir,
-            auto_download=True,
+
         )
 
         # Load state - should use pre-extracted data
@@ -416,24 +454,96 @@ class TestAlreadyExtracted:
         assert request_count["blocks"] == 0
 
 
-class TestMissingCountyAddressFeatures:
-    """Test handling of 404 for individual county address features."""
+class TestClearCache:
+    """Test clearing cached data."""
 
-    async def test_missing_county_skipped_gracefully(
-        self, isolated_data_dir_for_missing_county
+    async def test_clear_state_deletes_files(
+        self, mock_census_http, tmp_path, monkeypatch
     ):
-        """When a county returns 404 for address features, it's skipped."""
+        """Clearing a state removes its data files from disk."""
+        from click.testing import CliRunner
+        from census_lookup.cli.commands import cli
+
+        # Set HOME so CLI uses our temp directory
+        monkeypatch.setenv("HOME", str(tmp_path))
+        data_dir = tmp_path / ".census-lookup"
+
+        # Download data first
         lookup = CensusLookup(
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
-            data_dir=isolated_data_dir_for_missing_county,
-            auto_download=True,
+            data_dir=data_dir,
         )
-
-        # Should complete without error even though one county 404s
         await lookup.load_state("DC")
 
-        # Should still be able to geocode (using available address features)
+        # Verify files exist
+        blocks_dir = data_dir / "tiger" / "blocks"
+        assert any(blocks_dir.glob("*.parquet")), "Block files should exist"
+
+        # Clear via CLI
+        runner = CliRunner()
+        result = runner.invoke(cli, ["clear", "DC"], input="y\n")
+        assert result.exit_code == 0, result.output
+
+        # Verify files are deleted
+        assert not any(blocks_dir.glob("*.parquet")), "Block files should be deleted"
+
+
+class TestCorruptedCatalog:
+    """Test handling of corrupted catalog.json."""
+
+    async def test_corrupted_catalog_starts_fresh(self, mock_census_http, tmp_path):
+        """When catalog.json is corrupted, system starts fresh."""
+        data_dir = tmp_path / "census-lookup"
+        data_dir.mkdir()
+        for subdir in ["tiger/blocks", "tiger/addrfeat", "census/pl94171", "census/acs", "temp"]:
+            (data_dir / subdir).mkdir(parents=True)
+
+        # Write corrupted catalog
+        catalog_path = data_dir / "catalog.json"
+        catalog_path.write_text("{ invalid json }")
+
+        # CensusLookup should handle corrupted catalog gracefully
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=data_dir,
+        )
+
+        # Should work - corrupted catalog means data needs to be downloaded
+        await lookup.load_state("DC")
+
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
-        # May or may not match depending on which county has data
-        assert result is not None
+        assert result.is_matched
+
+        # Catalog should now be valid
+        import json
+        catalog_data = json.loads(catalog_path.read_text())
+        assert "datasets" in catalog_data
+
+
+class TestInvalidStateInAddress:
+    """Test handling of addresses with invalid state abbreviations."""
+
+    async def test_address_with_invalid_state_returns_no_match(
+        self, mock_census_http, isolated_data_dir
+    ):
+        """Address with invalid state code returns no match (doesn't crash)."""
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # Load DC data
+        await lookup.load_state("DC")
+
+        # Address with invalid state abbreviation "XX"
+        # The parser will extract "XX" as state, normalize_state will raise ValueError,
+        # which is caught and state becomes None, leading to no match
+        result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, XX")
+
+        # Should not crash, just return no match
+        assert not result.is_matched
+
+

@@ -17,14 +17,13 @@ from census_lookup.cli.commands import cli
 class TestCLILookup:
     """User can look up addresses via command line."""
 
-    def test_lookup_json_output(self):
+    def test_lookup_output(self):
         """Look up address with JSON output."""
         runner = CliRunner()
         result = runner.invoke(cli, [
             "lookup",
             "1600 Pennsylvania Avenue NW, Washington, DC",
             "-v", "P1_001N",
-            "-f", "json",
         ])
 
         assert result.exit_code == 0, result.output
@@ -38,48 +37,6 @@ class TestCLILookup:
         assert data["geoid"] is not None
         assert "P1_001N" in data
 
-    def test_lookup_csv_output(self):
-        """Look up address with CSV output."""
-        runner = CliRunner()
-        result = runner.invoke(cli, [
-            "lookup",
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "-v", "P1_001N",
-            "-f", "csv",
-        ])
-
-        assert result.exit_code == 0, result.output
-        assert "geoid" in result.output
-        assert "P1_001N" in result.output
-
-    def test_lookup_table_output(self):
-        """Look up address with table output."""
-        runner = CliRunner()
-        result = runner.invoke(cli, [
-            "lookup",
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "-f", "table",
-        ])
-
-        assert result.exit_code == 0, result.output
-        assert "CENSUS LOOKUP RESULT" in result.output
-        assert "GEOID" in result.output
-
-    def test_lookup_table_with_variables(self):
-        """Look up address with table output and census variables."""
-        runner = CliRunner()
-        result = runner.invoke(cli, [
-            "lookup",
-            "1600 Pennsylvania Avenue NW, Washington, DC",
-            "-v", "P1_001N",
-            "-f", "table",
-        ])
-
-        assert result.exit_code == 0, result.output
-        assert "CENSUS LOOKUP RESULT" in result.output
-        assert "Census Data" in result.output
-        assert "P1_001N" in result.output
-
     def test_lookup_different_levels(self):
         """Look up at different geographic levels."""
         runner = CliRunner()
@@ -90,7 +47,6 @@ class TestCLILookup:
                 "1600 Pennsylvania Avenue NW, Washington, DC",
                 "-l", level,
                 "-v", "P1_001N",
-                "-f", "json",
             ])
 
             assert result.exit_code == 0, f"{level}: {result.output}"
@@ -192,6 +148,18 @@ class TestCLIInfo:
         assert "Data directory" in result.output
         assert "Disk usage" in result.output
 
+    def test_info_command_no_data(self, tmp_path, monkeypatch):
+        """Info command with no downloaded data shows help message."""
+        # Set HOME to temp directory so DataManager uses tmp_path/.census-lookup
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["info"])
+
+        assert result.exit_code == 0, result.output
+        assert "No data downloaded yet" in result.output
+        assert "Run: census-lookup download" in result.output
+
 
 class TestCLIVariables:
     """User can list available variables."""
@@ -222,14 +190,6 @@ class TestCLIVariables:
 class TestCLIDownload:
     """User can pre-download data."""
 
-    def test_download_requires_state(self):
-        """Error when no state specified."""
-        runner = CliRunner()
-        result = runner.invoke(cli, ["download"])
-
-        assert result.exit_code != 0
-        assert "Specify state" in result.output
-
     def test_download_single_state(self):
         """Download data for a single state."""
         runner = CliRunner()
@@ -237,7 +197,8 @@ class TestCLIDownload:
 
         # May succeed or fail based on network, but command should run
         assert result.exit_code == 0
-        assert "Downloading" in result.output or "Done" in result.output or "Download complete" in result.output
+        output = result.output
+        assert "Downloading" in output or "Done" in output or "Download complete" in output
 
 
 class TestCLICoords:
@@ -306,19 +267,17 @@ class TestCLIVersion:
 class TestCLIEdgeCases:
     """Test CLI edge cases for coverage."""
 
-    def test_lookup_no_match_table_output(self):
-        """Look up invalid address with table output shows no match message."""
+    def test_lookup_no_match(self):
+        """Look up invalid address shows no match message."""
         runner = CliRunner()
         result = runner.invoke(cli, [
             "lookup",
             "invalid address without state",
-            "-f", "table",
         ])
 
         assert result.exit_code == 0
-        assert "CENSUS LOOKUP RESULT" in result.output
-        # Should show no match message
-        assert "No match found" in result.output or "no_match" in result.output.lower()
+        # Should show no match in JSON output
+        assert "no_state" in result.output or "no_match" in result.output
 
     def test_batch_unsupported_format(self):
         """Error when input file format is unsupported."""
@@ -403,3 +362,62 @@ class TestCLIEdgeCases:
         assert "MB" in _format_size(1024 * 1024 * 2)
         assert "GB" in _format_size(1024 * 1024 * 1024 * 2)
         assert "TB" in _format_size(1024 * 1024 * 1024 * 1024 * 2)
+
+
+class TestCLIDownloadErrors:
+    """Test CLI download error handling."""
+
+    def test_download_invalid_state_shows_error(self, mock_census_http_404, tmp_path, monkeypatch):
+        """Download of invalid state shows error message."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["download", "INVALID_STATE"])
+
+        # Should complete but show error
+        assert "Error" in result.output
+
+
+class TestCLICoordsWithPreloadedData:
+    """Test CLI coords command with preloaded data."""
+
+    def test_coords_success_output(self, mock_census_http, isolated_data_dir, monkeypatch):
+        """Coords command outputs JSON when data is found."""
+        # Override HOME so CLI uses our test data directory
+        monkeypatch.setenv("HOME", str(isolated_data_dir.parent))
+
+        runner = CliRunner()
+
+        # First download DC data
+        result = runner.invoke(cli, ["download", "DC"])
+        assert result.exit_code == 0, result.output
+
+        # Now coords should find data
+        result = runner.invoke(cli, [
+            "coords",
+            "-l", "tract",
+            "-v", "P1_001N",
+            "--",
+            "38.8977",
+            "-77.0365",
+        ])
+
+        assert result.exit_code == 0
+        # Should output JSON with geoid
+        assert "geoid" in result.output.lower()
+
+    def test_coords_no_states_downloaded(self, tmp_path, monkeypatch):
+        """Coords command shows message when no states are downloaded."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "coords",
+            "-l", "tract",
+            "--",
+            "38.8977",
+            "-77.0365",
+        ])
+
+        assert result.exit_code == 0
+        assert "No states downloaded" in result.output

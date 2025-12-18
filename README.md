@@ -40,9 +40,6 @@ uvx census-lookup batch input.csv output.csv --address-column addr --level tract
 # Pre-download data for states (optional - data downloads automatically)
 uvx census-lookup download CA TX NY
 
-# Disable auto-download (useful if you've pre-downloaded data)
-uvx census-lookup lookup "123 Main St, LA, CA" --no-download
-
 # List available census variables
 uvx census-lookup variables
 

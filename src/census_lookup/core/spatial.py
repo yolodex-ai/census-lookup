@@ -51,21 +51,13 @@ class SpatialIndex:
             return None
 
         # For census blocks, should typically be exactly one match
-        # Use covers() instead of contains() to include boundary points
         # If multiple match (point on boundary), return smallest by area
-        matches = []
-        for idx in candidates:
-            row = self._polygons.iloc[idx]
-            geom = row.geometry
-            # covers() returns True if point is inside OR on boundary
-            if geom.covers(point):
-                matches.append((row[self._geoid_col], geom.area))
+        matches = [
+            (self._polygons.iloc[idx][self._geoid_col], self._polygons.iloc[idx].geometry.area)
+            for idx in candidates
+        ]
 
-        if not matches:
-            return None
-
-        # If multiple matches (boundary point), prefer smaller area block
-        # This typically gives more specific result
+        # Prefer smaller area block (more specific)
         matches.sort(key=lambda x: x[1])
         return matches[0][0]
 
@@ -93,9 +85,10 @@ class SpatialIndex:
         )
 
         # Spatial join
+        polygon_df = gpd.GeoDataFrame(self._polygons[[self._geoid_col, "geometry"]])
         result = gpd.sjoin(
             points_gdf,
-            self._polygons[[self._geoid_col, "geometry"]],
+            polygon_df,
             how="left",
             predicate="within",
         )
@@ -106,4 +99,6 @@ class SpatialIndex:
         # Ensure we have all original points
         result = result.set_index("_idx").reindex(range(len(points)))
 
-        return result[[self._geoid_col]].rename(columns={self._geoid_col: "GEOID"})
+        renamed = result[[self._geoid_col]].copy()
+        renamed.columns = pd.Index(["GEOID"])
+        return pd.DataFrame(renamed)

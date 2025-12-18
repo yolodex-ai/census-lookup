@@ -4,7 +4,6 @@ Tests looking up census data by latitude/longitude coordinates.
 """
 
 import pandas as pd
-import pytest
 
 from census_lookup import CensusLookup, GeoLevel
 
@@ -50,3 +49,23 @@ class TestCoordinateLookup:
 
         assert len(results) == 2
         assert "GEOID" in results.columns
+
+    async def test_coordinate_lookup_with_acs_null_values(
+        self, mock_census_http_acs_with_nulls, isolated_data_dir_acs_nulls
+    ):
+        """Coordinate lookup handles ACS null values correctly."""
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            acs_variables=["B19013_001E"],  # Median income - will be null
+            data_dir=isolated_data_dir_acs_nulls,
+        )
+        # Load DC first
+        await lookup.load_state("DC")
+
+        # Look up by coordinates
+        result = await lookup.lookup_coordinates(38.8977, -77.0365)
+
+        assert result.is_matched
+        # The ACS variable should be None (null in response)
+        assert result.census_data.get("B19013_001E") is None

@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Polygon
 
-
 # =============================================================================
 # Import enforcement: tests should only use the public API
 # =============================================================================

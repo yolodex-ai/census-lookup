@@ -120,8 +120,6 @@ class AddressParser:
             # Handle repeated labels by using parse() instead
             parsed = usaddress.parse(address)
             return self._from_parse_result(parsed)
-        except Exception as e:
-            raise AddressParseError(address, str(e))
 
     def _to_parsed_address(self, tagged: Dict[str, str]) -> ParsedAddress:
         """Convert usaddress tagged dict to ParsedAddress."""
@@ -141,8 +139,5 @@ class AddressParser:
         for value, label in parsed:
             if label not in grouped:
                 grouped[label] = value
-            elif label == "StreetName":
-                # Concatenate street name parts
-                grouped[label] += " " + value
 
         return self._to_parsed_address(grouped)

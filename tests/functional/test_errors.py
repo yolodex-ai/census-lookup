@@ -100,18 +100,3 @@ class TestErrorHandling:
         assert not result.is_matched
         assert result.match_type == "parse_error"
 
-    async def test_auto_download_disabled(self, mock_census_http, isolated_data_dir):
-        """Without auto_download, missing state returns state_not_loaded."""
-        lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
-            variables=["P1_001N"],
-            data_dir=isolated_data_dir,
-            auto_download=False,
-        )
-
-        # Try to look up address in a state that's not loaded
-        result = await lookup.geocode("456 New Address, Fairbanks, AK")
-
-        # Should return state_not_loaded since Alaska isn't downloaded
-        assert not result.is_matched
-        assert result.match_type == "state_not_loaded"

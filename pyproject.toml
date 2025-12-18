@@ -1,6 +1,6 @@
 [project]
 name = "census-lookup"
-version = "0.1.3"
+version = "0.1.4"
 description = "Offline address-to-Census data mapping for Python with PL 94-171 and ACS support"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -76,6 +76,18 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 
+[tool.pyright]
+pythonVersion = "3.10"
+stubPath = "src/census_lookup/stubs"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownParameterType = false
+reportPrivateUsage = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=census_lookup"
@@ -107,7 +119,11 @@ exclude_lines = [
     # Error messages only
     "click.echo.*err=True",
 ]
-# Exclude downloader.py from coverage requirements (requires network)
 partial_branches = [
     "pragma: no branch",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.407",
 ]

@@ -3,7 +3,6 @@
 Tests initialization, state loading, and variable management through the public API.
 """
 
-import pytest
 
 from census_lookup import CensusLookup, GeoLevel
 
@@ -152,7 +151,6 @@ class TestDataDownload:
             geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
-            auto_download=True,
         )
 
         # This should trigger download via mocked endpoints

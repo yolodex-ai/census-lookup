@@ -19,7 +19,7 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 from aioresponses import CallbackResult, aioresponses
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Polygon
 
 # DC FIPS code
 DC_STATE_FIPS = "11"
@@ -64,6 +64,20 @@ def create_dc_blocks_gdf() -> gpd.GeoDataFrame:
         blocks.append(block)
         # Different block numbers
         geoids.append(f"11001006202100{i+1}")
+
+    # Add an L-shaped (concave) block to test bbox vs actual polygon intersection
+    # The "notch" of the L is at the top-right corner
+    # Point at (lon+0.024, lat+0.024) is in bbox but NOT in polygon
+    l_block = Polygon([
+        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.02),  # bottom-left
+        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.02),  # bottom-right
+        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.025),  # mid-right
+        (WHITE_HOUSE_LON + 0.025, WHITE_HOUSE_LAT + 0.025),  # notch inner
+        (WHITE_HOUSE_LON + 0.025, WHITE_HOUSE_LAT + 0.03),  # notch top
+        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.03),  # top-left
+    ])
+    blocks.append(l_block)
+    geoids.append("110010062021005")
 
     return gpd.GeoDataFrame(
         {
@@ -123,23 +137,153 @@ def create_dc_addrfeat_gdf() -> gpd.GeoDataFrame:
         "geometry": maryland_ave,
     })
 
+    # --- Edge case features ---
+
+    # Feature with empty FULLNAME (tests line 70 skip)
+    empty_name_street = LineString([
+        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT),
+        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT),
+    ])
+    features.append({
+        "LINEARID": "1101234567892",
+        "FULLNAME": "",  # Empty street name - should be skipped
+        "LFROMHN": "100",
+        "LTOHN": "200",
+        "RFROMHN": "101",
+        "RTOHN": "201",
+        "ZIPL": "20500",
+        "ZIPR": "20500",
+        "PARITYL": "E",
+        "PARITYR": "O",
+        "geometry": empty_name_street,
+    })
+
+    # Feature with invalid house number ranges (non-numeric)
+    # Tests lines 203-204 and 218-219 (ValueError/TypeError)
+    invalid_range_street = LineString([
+        (WHITE_HOUSE_LON - 0.03, WHITE_HOUSE_LAT + 0.01),
+        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.01),
+    ])
+    features.append({
+        "LINEARID": "1101234567893",
+        "FULLNAME": "CONSTITUTION AVE NW",
+        "LFROMHN": "INVALID",  # Non-numeric - triggers except clause
+        "LTOHN": "INVALID",
+        "RFROMHN": "BAD",
+        "RTOHN": "BAD",
+        "ZIPL": "20001",
+        "ZIPR": "20001",
+        "PARITYL": "E",
+        "PARITYR": "O",
+        "geometry": invalid_range_street,
+    })
+
+    # Another Constitution Ave segment with valid ranges for fallback matching
+    # but with unknown parity value (tests line 250)
+    constitution_valid = LineString([
+        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.01),
+        (WHITE_HOUSE_LON - 0.01, WHITE_HOUSE_LAT + 0.01),
+    ])
+    features.append({
+        "LINEARID": "1101234567894",
+        "FULLNAME": "CONSTITUTION AVE NW",
+        "LFROMHN": "500",
+        "LTOHN": "698",
+        "RFROMHN": "501",
+        "RTOHN": "699",
+        "ZIPL": "20001",
+        "ZIPR": "20001",
+        "PARITYL": "X",  # Unknown parity - triggers else branch line 250
+        "PARITYR": "X",
+        "geometry": constitution_valid,
+    })
+
+    # Segment with equal from/to range (tests line 273: to_addr == from_addr)
+    single_addr_street = LineString([
+        (WHITE_HOUSE_LON + 0.01, WHITE_HOUSE_LAT + 0.02),
+        (WHITE_HOUSE_LON + 0.02, WHITE_HOUSE_LAT + 0.02),
+    ])
+    features.append({
+        "LINEARID": "1101234567895",
+        "FULLNAME": "SINGLE ST NW",
+        "LFROMHN": "100",
+        "LTOHN": "100",  # Same as from - single address
+        "RFROMHN": "101",
+        "RTOHN": "101",
+        "ZIPL": "20002",
+        "ZIPR": "20002",
+        "PARITYL": "E",
+        "PARITYR": "O",
+        "geometry": single_addr_street,
+    })
+
+    # Segment with parity=B (both) to test line 239
+    both_parity_street = LineString([
+        (WHITE_HOUSE_LON - 0.03, WHITE_HOUSE_LAT + 0.02),
+        (WHITE_HOUSE_LON - 0.02, WHITE_HOUSE_LAT + 0.02),
+    ])
+    features.append({
+        "LINEARID": "1101234567896",
+        "FULLNAME": "BOTH ST NW",
+        "LFROMHN": "1",
+        "LTOHN": "99",
+        "RFROMHN": "2",
+        "RTOHN": "100",
+        "ZIPL": "20003",
+        "ZIPR": "20003",
+        "PARITYL": "B",  # Both parities allowed - tests line 239
+        "PARITYR": "B",
+        "geometry": both_parity_street,
+    })
+
+    # Segment to test right side parity failure (line 226->229):
+    # - Left range: 200-298 EVEN only (PARITYL='E')
+    # - Right range: 201-299 ODD only (PARITYR='O')
+    # If we lookup 255 (odd):
+    #   - NOT in left range (255 > 298? No, 255 < 298, but parity fails since 255 is odd)
+    #   - Then check right side: 255 is in 201-299, but PARITYR='O' means odd only
+    #   - Since 255 is odd, it SHOULD match right side...
+    # Actually I need a case where right side parity FAILS
+    # Let's use address 260: even number
+    #   - Left side: 200-298 with PARITYL='E' -> 260 is even, matches!
+    # That won't work either. I need left to fail AND right to fail.
+    #
+    # Better approach: Left range is None, only right range exists with wrong parity
+    right_only_street = LineString([
+        (WHITE_HOUSE_LON + 0.03, WHITE_HOUSE_LAT + 0.01),
+        (WHITE_HOUSE_LON + 0.04, WHITE_HOUSE_LAT + 0.01),
+    ])
+    features.append({
+        "LINEARID": "1101234567897",
+        "FULLNAME": "RIGHTONLY ST NW",
+        "LFROMHN": None,  # No left side range
+        "LTOHN": None,
+        "RFROMHN": "301",
+        "RTOHN": "399",
+        "ZIPL": "20004",
+        "ZIPR": "20004",
+        "PARITYL": None,
+        "PARITYR": "O",  # Odd only on right side
+        "geometry": right_only_street,
+    })
+
     return gpd.GeoDataFrame(features, crs="EPSG:4269")
 
 
 def create_dc_census_df() -> pd.DataFrame:
     """Create synthetic PL 94-171 census data for DC blocks."""
-    # Create census data for all our test blocks
-    geoids = [TEST_BLOCK_GEOID] + [f"11001006202100{i}" for i in range(1, 5)]
+    # Create census data for all our test blocks (including L-shaped block)
+    geoids = [TEST_BLOCK_GEOID] + [f"11001006202100{i}" for i in range(1, 6)]
 
     return pd.DataFrame({
         "GEOID": geoids,
-        "P1_001N": [150, 200, 180, 160, 190],  # Total population
-        "P1_003N": [80, 100, 90, 85, 95],       # White alone
-        "P1_004N": [40, 60, 50, 45, 55],        # Black alone
-        "P2_002N": [30, 40, 35, 30, 40],        # Hispanic
-        "H1_001N": [60, 80, 70, 65, 75],        # Total housing units
-        "H1_002N": [55, 75, 65, 60, 70],        # Occupied
-        "H1_003N": [5, 5, 5, 5, 5],             # Vacant
+        "P1_001N": [150, 200, 180, 160, 190, 175],  # Total population
+        "P1_003N": [80, 100, 90, 85, 95, 88],       # White alone
+        "P1_004N": [40, 60, 50, 45, 55, 48],        # Black alone
+        "P2_002N": [30, 40, 35, 30, 40, 35],        # Hispanic
+        "H1_001N": [60, 80, 70, 65, 75, 68],        # Total housing units
+        "H1_002N": [55, 75, 65, 60, 70, 63],        # Occupied
+        "H1_003N": [5, 5, 5, 5, 5, 5],              # Vacant
     })
 
 
@@ -327,7 +471,6 @@ def mock_lookup(isolated_data_dir: Path):
         geo_level=GeoLevel.TRACT,
         variables=["P1_001N"],
         data_dir=isolated_data_dir,
-        auto_download=True,
     )
 
 
@@ -461,7 +604,6 @@ def mock_census_http_slow_blocks() -> Generator[tuple, None, None]:
 
     # Events for coordinating concurrent requests
     first_request_started = asyncio.Event()
-    second_request_started = asyncio.Event()
     request_count = {"blocks": 0}
 
     with aioresponses() as mocked:
@@ -632,7 +774,9 @@ def mock_census_http_connection_errors() -> Generator[aioresponses, None, None]:
 
 
 @pytest.fixture
-def isolated_data_dir_for_connection_errors(tmp_path: Path, mock_census_http_connection_errors) -> Path:
+def isolated_data_dir_for_connection_errors(
+    tmp_path: Path, mock_census_http_connection_errors
+) -> Path:
     """Create isolated data directory for connection error tests."""
     data_dir = tmp_path / "census-lookup"
     data_dir.mkdir()
@@ -840,7 +984,9 @@ def mock_census_http_many_acs_variables() -> Generator[aioresponses, None, None]
 
 
 @pytest.fixture
-def isolated_data_dir_for_many_acs_variables(tmp_path: Path, mock_census_http_many_acs_variables) -> Path:
+def isolated_data_dir_for_many_acs_variables(
+    tmp_path: Path, mock_census_http_many_acs_variables
+) -> Path:
     """Create isolated data directory for many ACS variables tests."""
     data_dir = tmp_path / "census-lookup"
     data_dir.mkdir()
@@ -875,7 +1021,7 @@ def mock_census_http_with_request_counting() -> Generator[tuple, None, None]:
         mocked.get(blocks_pattern, callback=blocks_callback, repeat=True)
 
         # Address features with counting
-        addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*\.zip")
+        addrfeat_pattern = re.compile(r".*census\.gov.*ADDRFEAT.*\.zip")
 
         def addrfeat_callback(url, **kwargs):
             request_count["addrfeat"] += 1
@@ -908,7 +1054,9 @@ def mock_census_http_with_request_counting() -> Generator[tuple, None, None]:
 
 
 @pytest.fixture
-def isolated_data_dir_with_preextracted(tmp_path: Path, mock_census_http_with_request_counting) -> tuple:
+def isolated_data_dir_with_preextracted(
+    tmp_path: Path, mock_census_http_with_request_counting
+) -> tuple:
     """Create data directory with pre-extracted block files to test cache hit."""
     mocked, request_count = mock_census_http_with_request_counting
 
@@ -930,8 +1078,8 @@ def isolated_data_dir_with_preextracted(tmp_path: Path, mock_census_http_with_re
 
 
 @pytest.fixture
-def mock_census_http_missing_county() -> Generator[aioresponses, None, None]:
-    """Mock Census endpoints where some counties return 404 for address features."""
+def mock_census_http_acs_with_nulls() -> Generator[aioresponses, None, None]:
+    """Mock Census endpoints with ACS data containing null values."""
     blocks_gdf = create_dc_blocks_gdf()
     blocks_zip = create_shapefile_zip(blocks_gdf, f"tl_2020_{DC_STATE_FIPS}_tabblock20")
 
@@ -940,19 +1088,14 @@ def mock_census_http_missing_county() -> Generator[aioresponses, None, None]:
     census_df = create_dc_census_df()
 
     with aioresponses() as mocked:
-        # Blocks work normally
+        # TIGER downloads work normally
         blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
         mocked.get(blocks_pattern, body=blocks_zip, repeat=True)
 
-        # DC county (11001) works, but fake county 11999 returns 404
-        dc_addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
-        mocked.get(dc_addrfeat_pattern, body=addrfeat_zip, repeat=True)
+        addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
+        mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
 
-        # Any other county returns 404
-        other_addrfeat_pattern = re.compile(r".*census\.gov.*ADDRFEAT.*\.zip")
-        mocked.get(other_addrfeat_pattern, status=404, repeat=True)
-
-        # Census API works
+        # PL 94-171 works normally
         def pl_callback(url, **kwargs):
             get_param = unquote(url.query.get("get", ""))
             if get_param:
@@ -969,15 +1112,39 @@ def mock_census_http_missing_county() -> Generator[aioresponses, None, None]:
         pl_pattern = re.compile(r".*api\.census\.gov/data/2020/dec/pl.*")
         mocked.get(pl_pattern, callback=pl_callback, repeat=True)
 
+        # ACS returns data with null values
+        def acs_callback(url, **kwargs):
+            get_param = unquote(url.query.get("get", ""))
+            if get_param:
+                requested_vars = [v for v in get_param.split(",") if v.startswith("B")]
+            else:
+                requested_vars = ["B19013_001E"]
+
+            # Return tract-level ACS data with null values
+            header = ["GEO_ID", "NAME"] + requested_vars + ["state", "county", "tract"]
+            rows = [header]
+
+            # Return null for income variable
+            geo_id = f"1400000US{TEST_TRACT_GEOID}"
+            name = f"Census Tract {TEST_TRACT_GEOID[5:]}, DC"
+            # Use None/null for values
+            values = [None] * len(requested_vars)
+            state = TEST_TRACT_GEOID[:2]
+            county = TEST_TRACT_GEOID[2:5]
+            tract_num = TEST_TRACT_GEOID[5:]
+
+            rows.append([geo_id, name] + values + [state, county, tract_num])
+            return CallbackResult(status=200, payload=rows)
+
         acs_pattern = re.compile(r".*api\.census\.gov/data/\d+/acs/acs5.*")
-        mocked.get(acs_pattern, callback=pl_callback, repeat=True)
+        mocked.get(acs_pattern, callback=acs_callback, repeat=True)
 
         yield mocked
 
 
 @pytest.fixture
-def isolated_data_dir_for_missing_county(tmp_path: Path, mock_census_http_missing_county) -> Path:
-    """Create isolated data directory for missing county tests."""
+def isolated_data_dir_acs_nulls(tmp_path: Path, mock_census_http_acs_with_nulls) -> Path:
+    """Create isolated data directory for ACS null value tests."""
     data_dir = tmp_path / "census-lookup"
     data_dir.mkdir()
     (data_dir / "tiger" / "blocks").mkdir(parents=True)
@@ -986,3 +1153,5 @@ def isolated_data_dir_for_missing_county(tmp_path: Path, mock_census_http_missin
     (data_dir / "census" / "acs").mkdir(parents=True)
     (data_dir / "temp").mkdir(parents=True)
     return data_dir
+
+

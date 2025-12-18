@@ -4,7 +4,6 @@ Tests batch processing of multiple addresses through the public API.
 """
 
 import pandas as pd
-import pytest
 
 from census_lookup import CensusLookup, GeoLevel
 

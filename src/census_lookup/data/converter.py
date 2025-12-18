@@ -1,10 +1,13 @@
 """Convert shapefiles to GeoParquet format."""
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Literal, Optional, cast
 
 import geopandas as gpd
 import pandas as pd
+
+# Note: pyarrow/geopandas supports zstd but type stubs may not include it
+CompressionType = Literal["snappy", "gzip", "brotli", "zstd"] | None
 
 
 class GeoParquetConverter:
@@ -18,18 +21,18 @@ class GeoParquetConverter:
     - Spatial filtering support
     """
 
-    def __init__(self, compression: str = "zstd"):
+    def __init__(self, compression: CompressionType = "zstd"):
         """
         Initialize converter.
 
         Args:
             compression: Compression algorithm (zstd, snappy, gzip, or None)
         """
-        self.compression = compression
+        self.compression: CompressionType = compression
 
     def convert_shapefile(
         self,
-        shapefile_path: Path,
+        shapefile_dir: Path,
         output_path: Path,
         columns: Optional[List[str]] = None,
     ) -> Path:
@@ -37,19 +40,16 @@ class GeoParquetConverter:
         Convert a shapefile to GeoParquet.
 
         Args:
-            shapefile_path: Input shapefile path (.shp or directory containing .shp)
+            shapefile_dir: Directory containing .shp file (from download extraction)
             output_path: Output parquet path
             columns: Columns to include (None for all)
 
         Returns:
             Path to output parquet file
         """
-        # Handle both .shp file and directory containing .shp
-        if shapefile_path.is_dir():
-            shp_files = list(shapefile_path.glob("*.shp"))
-            if not shp_files:
-                raise FileNotFoundError(f"No .shp file found in {shapefile_path}")
-            shapefile_path = shp_files[0]
+        # Find .shp file in extracted directory
+        shp_files = list(shapefile_dir.glob("*.shp"))
+        shapefile_path = shp_files[0]
 
         gdf = gpd.read_file(shapefile_path)
 
@@ -61,13 +61,14 @@ class GeoParquetConverter:
             gdf = gdf[existing_cols]
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        gdf.to_parquet(output_path, compression=self.compression)
+        # Cast to Any for compression - zstd supported but not in stubs
+        gdf.to_parquet(output_path, compression=cast(Any, self.compression))
 
         return output_path
 
     def convert_blocks(
         self,
-        shapefile_path: Path,
+        shapefile_dir: Path,
         output_path: Path,
     ) -> Path:
         """
@@ -95,12 +96,9 @@ class GeoParquetConverter:
             "geometry",
         ]
 
-        # Load and validate
-        if shapefile_path.is_dir():
-            shp_files = list(shapefile_path.glob("*.shp"))
-            if not shp_files:
-                raise FileNotFoundError(f"No .shp file found in {shapefile_path}")
-            shapefile_path = shp_files[0]
+        # Find .shp file in extracted directory
+        shp_files = list(shapefile_dir.glob("*.shp"))
+        shapefile_path = shp_files[0]
 
         gdf = gpd.read_file(shapefile_path)
 
@@ -109,7 +107,8 @@ class GeoParquetConverter:
             ~gdf["GEOID20"].str.match(r"^\d{15}$", na=False)
         ]
         if not invalid_geoids.empty:
-            samples = invalid_geoids["GEOID20"].head(5).tolist()
+            geoid_col = invalid_geoids["GEOID20"]
+            samples = cast(pd.Series, geoid_col).head(5).tolist()
             raise ValueError(
                 f"Invalid GEOID20 values in block data (expected 15 digits): {samples}"
             )
@@ -120,13 +119,13 @@ class GeoParquetConverter:
         gdf = gdf[existing_cols]
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        gdf.to_parquet(output_path, compression=self.compression)
+        gdf.to_parquet(output_path, compression=cast(Any, self.compression))
 
         return output_path
 
     def convert_address_features(
         self,
-        shapefile_path: Path,
+        shapefile_dir: Path,
         output_path: Path,
     ) -> Path:
         """
@@ -153,7 +152,7 @@ class GeoParquetConverter:
             "PARITYR",
             "geometry",
         ]
-        return self.convert_shapefile(shapefile_path, output_path, columns)
+        return self.convert_shapefile(shapefile_dir, output_path, columns)
 
     def merge_county_files(
         self,
@@ -164,27 +163,18 @@ class GeoParquetConverter:
         Merge multiple county-level parquet files into a single state-level file.
 
         Args:
-            county_files: List of county-level parquet files
+            county_files: List of county-level parquet files (must not be empty)
             output_path: Output state-level parquet file
 
         Returns:
             Path to merged output file
         """
-        if not county_files:
-            raise ValueError("No county files provided")
-
-        gdfs = []
-        for path in county_files:
-            if path.suffix == ".parquet":
-                gdf = gpd.read_parquet(path)
-            else:
-                gdf = gpd.read_file(path)
-            gdfs.append(gdf)
-
+        # Caller ensures county_files is non-empty
+        gdfs = [gpd.read_parquet(path) for path in county_files]
         merged = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        merged.to_parquet(output_path, compression=self.compression)
+        merged.to_parquet(output_path, compression=cast(Any, self.compression))
 
         return output_path
 

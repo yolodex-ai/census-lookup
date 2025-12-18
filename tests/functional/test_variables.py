@@ -6,18 +6,18 @@ Tests PL 94-171 variables, ACS variables, and variable groups through the public
 import pytest
 
 from census_lookup import (
+    ACS_VARIABLE_GROUPS,
+    ACS_VARIABLES,
+    VARIABLE_GROUPS,
+    VARIABLES,
     CensusLookup,
     GeoLevel,
-    VARIABLES,
-    VARIABLE_GROUPS,
-    ACS_VARIABLES,
-    ACS_VARIABLE_GROUPS,
-    get_variables_for_group,
-    list_tables,
-    list_variable_groups,
     get_acs_variables_for_group,
+    get_variables_for_group,
     list_acs_tables,
     list_acs_variable_groups,
+    list_tables,
+    list_variable_groups,
 )
 
 
@@ -36,6 +36,9 @@ class TestACSData:
 
         assert result.is_matched
         assert result.census_data.get("B19013_001E") is not None
+
+        # Properly close to clean up ACS session
+        await lookup.close()
 
     async def test_combined_pl94171_and_acs(self, mock_census_http, isolated_data_dir):
         """Get both PL 94-171 (population) and ACS (income) together."""
@@ -164,6 +167,31 @@ class TestVariableFunctions:
         assert "population" in groups
         assert "housing" in groups
         assert isinstance(groups["population"], str)
+
+
+class TestMultiBatchVariables:
+    """Test that large variable sets work correctly (>50 per batch)."""
+
+    async def test_many_acs_variables_triggers_multi_batch(
+        self, mock_census_http, isolated_data_dir
+    ):
+        """Request >50 ACS variables to trigger multi-batch downloading."""
+        # Get all ACS variables - there are ~145 of them
+        all_acs_vars = list(ACS_VARIABLES.keys())
+        assert len(all_acs_vars) > 50  # Verify we have enough to trigger batching
+
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            acs_variables=all_acs_vars,
+            data_dir=isolated_data_dir,
+        )
+
+        result = await lookup.geocode("1600 Pennsylvania Avenue NW, Washington, DC")
+
+        assert result.is_matched
+        # Should have data for multiple variables from different batches
+        assert result.census_data.get("B19013_001E") is not None  # Income (batch 1)
+        assert result.census_data.get("B28002_001E") is not None  # Internet (later batch)
 
 
 class TestACSVariableFunctions:

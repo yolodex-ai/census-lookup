@@ -3,7 +3,6 @@
 Tests edge cases that exercise error handling and fallback logic through public API.
 """
 
-import pytest
 
 from census_lookup import CensusLookup, GeoLevel
 
@@ -22,6 +21,133 @@ class TestMatcherEdgeCases:
         # Address that parses but has no street name
         result = await lookup.geocode("Washington, DC 20500")
 
+        assert not result.is_matched
+        assert result.match_type in ["no_match", "parse_error"]
+
+    async def test_address_with_invalid_ranges_skipped(self, mock_census_http, isolated_data_dir):
+        """Address on street with invalid house number ranges is skipped.
+
+        The mock data includes Constitution Ave with 'INVALID' as house numbers.
+        This tests the ValueError/TypeError handling in _check_range.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # Constitution Ave has two segments:
+        # 1. One with invalid ranges (LFROMHN='INVALID') - should be skipped
+        # 2. One with valid ranges (500-699) - should match if house number is in range
+
+        # Address that should skip invalid segment and match the valid one
+        result = await lookup.geocode("550 Constitution Ave NW, Washington, DC 20001")
+
+        # The geocoding succeeded (coordinates were interpolated) even though
+        # the point is outside our mock blocks (no_block).
+        # This tests that the invalid range segment was skipped correctly.
+        assert result.latitude is not None
+        assert result.longitude is not None
+        assert result.matched_address == "CONSTITUTION AVE NW"
+        # no_block means geocoding worked but point not in any block polygon
+        assert result.match_type in ["interpolated", "no_block"]
+
+    async def test_address_with_unknown_parity(self, mock_census_http, isolated_data_dir):
+        """Address with unknown parity (X) falls back to range start matching.
+
+        The mock data has Constitution Ave with PARITYL='X' which triggers
+        the else branch in _parity_matches.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # The 500-698 range starts with 500 (even), so even house numbers should match
+        result = await lookup.geocode("600 Constitution Ave NW, Washington, DC 20001")
+
+        # The geocoding succeeded with coordinates even though outside mock blocks
+        assert result.latitude is not None
+        assert result.longitude is not None
+        assert result.matched_address == "CONSTITUTION AVE NW"
+        assert result.match_type in ["interpolated", "no_block"]
+
+    async def test_equal_from_to_range_interpolation(self, mock_census_http, isolated_data_dir):
+        """Address on segment with from=to range interpolates to middle.
+
+        Tests the line 273 branch where to_addr == from_addr.
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # SINGLE ST NW has LFROMHN=LTOHN=100
+        result = await lookup.geocode("100 Single St NW, Washington, DC 20002")
+
+        assert result.latitude is not None
+        assert result.longitude is not None
+        assert result.matched_address == "SINGLE ST NW"
+
+    async def test_parity_b_allows_any_number(self, mock_census_http, isolated_data_dir):
+        """Address with PARITY=B allows both odd and even house numbers.
+
+        Tests line 239 where parity is "B".
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # BOTH ST NW has PARITYL='B' so both even and odd should match on left side
+        result_odd = await lookup.geocode("51 Both St NW, Washington, DC 20003")
+        result_even = await lookup.geocode("50 Both St NW, Washington, DC 20003")
+
+        # Both should match
+        assert result_odd.latitude is not None
+        assert result_even.latitude is not None
+        assert result_odd.matched_address == "BOTH ST NW"
+        assert result_even.matched_address == "BOTH ST NW"
+
+    async def test_address_outside_all_ranges(self, mock_census_http, isolated_data_dir):
+        """Address that matches street name but house number is outside all ranges.
+
+        Tests line 180 (return None from _find_segment).
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # Pennsylvania Ave has ranges 1500-1699, so house number 9999 is outside
+        result = await lookup.geocode("9999 Pennsylvania Ave NW, Washington, DC 20500")
+
+        assert not result.is_matched
+        assert result.match_type in ["no_match", "parse_error"]
+
+    async def test_right_side_parity_mismatch(self, mock_census_http, isolated_data_dir):
+        """Even address on right-only segment with PARITYR=O returns no match.
+
+        RIGHTONLY ST NW has no left range, and right range 301-399 with PARITYR='O'.
+        An even address (350) will check right side and fail parity.
+        This tests line 226->229 (right side parity check fails).
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        # 350 is even, right side range is 301-399 with PARITYR='O' (odd only)
+        # Left side has no range (LFROMHN=None), so left check is skipped
+        # Right side: 350 is in 301-399 range but fails parity (O wants odd, 350 is even)
+        result = await lookup.geocode("350 Rightonly St NW, Washington, DC 20004")
+
+        # Should NOT match because parity fails
         assert not result.is_matched
         assert result.match_type in ["no_match", "parse_error"]
 
@@ -131,6 +257,36 @@ class TestSpatialEdgeCases:
         # Lookup coordinates far from DC
         result = await lookup.lookup_coordinates(lat=0.0, lon=0.0)
 
+        assert not result.is_matched
+        assert result.match_type == "no_block"
+
+    async def test_point_in_bbox_but_not_in_polygon(self, mock_census_http, isolated_data_dir):
+        """Point in bounding box but outside concave polygon returns no match.
+
+        This tests the case where spatial index returns a candidate (bbox intersection)
+        but the point is not actually inside the polygon (e.g., in the "notch" of an L-shape).
+        """
+        lookup = CensusLookup(
+            geo_level=GeoLevel.TRACT,
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+
+        await lookup.load_state("DC")
+
+        # The L-shaped block has vertices creating a notch at top-right:
+        # The block spans from (lon+0.02, lat+0.02) to (lon+0.03, lat+0.03)
+        # but has a notch cut out at (lon+0.025 to lon+0.03, lat+0.025 to lat+0.03)
+        # A point at (lon+0.027, lat+0.027) is IN the bbox but OUTSIDE the polygon
+
+        # WHITE_HOUSE_LON = -77.0365, WHITE_HOUSE_LAT = 38.8977
+        # So test point is at (-77.0365 + 0.027, 38.8977 + 0.027) = (-77.0095, 38.9247)
+        result = await lookup.lookup_coordinates(
+            lat=38.8977 + 0.027,  # In the "notch"
+            lon=-77.0365 + 0.027,
+        )
+
+        # Should not match - point is in bbox but outside polygon
         assert not result.is_matched
         assert result.match_type == "no_block"
 

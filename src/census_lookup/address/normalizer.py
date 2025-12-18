@@ -405,7 +405,7 @@ class StreetNormalizer:
 
         return result
 
-    def generate_variants(self, street_name: str) -> list:
+    def generate_variants(self, street_name: str) -> list[str]:
         """
         Generate possible variants of a street name for fuzzy matching.
 

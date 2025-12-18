@@ -4,12 +4,11 @@ import asyncio
 import shutil
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 import geopandas as gpd
 import pandas as pd
 
-from census_lookup.core.geoid import GeoLevel
 from census_lookup.data.catalog import DataCatalog, DatasetInfo
 from census_lookup.data.constants import FIPS_STATES, TIGER_URLS, normalize_state
 from census_lookup.data.converter import GeoParquetConverter
@@ -20,18 +19,6 @@ from census_lookup.data.downloader import (
     _coordinator,
 )
 from census_lookup.data.duckdb_engine import DuckDBEngine
-
-
-class DataNotAvailableError(Exception):
-    """Required data not downloaded."""
-
-    def __init__(self, state: str, data_type: str):
-        self.state = state
-        self.data_type = data_type
-        super().__init__(
-            f"Data not available for {state} ({data_type}). "
-            f"Run `census-lookup download {state}` to download."
-        )
 
 
 class DataManager:
@@ -63,17 +50,14 @@ class DataManager:
     def __init__(
         self,
         data_dir: Optional[Path] = None,
-        auto_download: bool = True,
     ):
         """
         Initialize DataManager.
 
         Args:
             data_dir: Base directory for data. Defaults to ~/.census-lookup/
-            auto_download: Whether to automatically download missing data
         """
         self.data_dir = data_dir or Path.home() / ".census-lookup"
-        self.auto_download = auto_download
 
         # Create subdirectories
         self.tiger_dir = self.data_dir / "tiger"
@@ -109,32 +93,25 @@ class DataManager:
     async def ensure_state_data(
         self,
         state: str,
-        data_types: Optional[Set[str]] = None,
         show_progress: bool = True,
     ) -> None:
         """
         Ensure all required data for a state is downloaded and converted.
 
+        Downloads blocks, address features, and PL 94-171 census data concurrently.
+
         Args:
             state: State name, abbreviation, or FIPS code
-            data_types: Types of data to ensure. Defaults to {"blocks", "addrfeat", "pl94171"}
             show_progress: Show progress indicators
         """
         state_fips = normalize_state(state)
 
-        if data_types is None:
-            data_types = {"blocks", "addrfeat", "pl94171"}
-
         # Download all data types concurrently
-        tasks = []
-        if "blocks" in data_types:
-            tasks.append(self._ensure_blocks(state_fips, show_progress))
-        if "addrfeat" in data_types:
-            tasks.append(self._ensure_address_features(state_fips, show_progress))
-        if "pl94171" in data_types:
-            tasks.append(self._ensure_census_data(state_fips, show_progress))
-
-        await asyncio.gather(*tasks)
+        await asyncio.gather(
+            self._ensure_blocks(state_fips, show_progress),
+            self._ensure_address_features(state_fips, show_progress),
+            self._ensure_census_data(state_fips, show_progress),
+        )
 
     async def _ensure_blocks(self, state_fips: str, show_progress: bool = True) -> None:
         """Ensure block data is available for a state."""
@@ -145,9 +122,6 @@ class DataManager:
         resource_key = f"ensure_blocks/{state_fips}"
 
         async def do_ensure():
-            if self.catalog.is_available("blocks", state_fips):
-                return self.catalog.get_path("blocks", state_fips)
-
             if show_progress:
                 print(f"Downloading block data for {FIPS_STATES.get(state_fips, state_fips)}...")
 
@@ -182,9 +156,6 @@ class DataManager:
         resource_key = f"ensure_addrfeat/{state_fips}"
 
         async def do_ensure():
-            if self.catalog.is_available("addrfeat", state_fips):
-                return self.catalog.get_path("addrfeat", state_fips)
-
             if show_progress:
                 state_name = FIPS_STATES.get(state_fips, state_fips)
                 print(f"Downloading address features for {state_name}...")
@@ -238,9 +209,6 @@ class DataManager:
         resource_key = f"ensure_pl94171/{state_fips}"
 
         async def do_ensure():
-            if self.catalog.is_available("pl94171", state_fips):
-                return self.catalog.get_path("pl94171", state_fips)
-
             if show_progress:
                 print(f"Downloading census data for {FIPS_STATES.get(state_fips, state_fips)}...")
 
@@ -252,7 +220,6 @@ class DataManager:
             await self.census_downloader.download_pl94171_for_state(
                 state_fips,
                 variables=DEFAULT_VARIABLES,
-                geo_level="block",
                 dest_path=csv_path,
             )
 
@@ -291,6 +258,8 @@ class DataManager:
         """
         Load block polygons for a state.
 
+        Requires ensure_state_data to have been called first.
+
         Args:
             state_fips: 2-digit state FIPS code
 
@@ -298,19 +267,15 @@ class DataManager:
             GeoDataFrame with block polygons
         """
         state_fips = normalize_state(state_fips)
-
-        if self.auto_download and not self.catalog.is_available("blocks", state_fips):
-            await self._ensure_blocks(state_fips)
-
         path = self.catalog.get_path("blocks", state_fips)
-        if not path:
-            raise DataNotAvailableError(state_fips, "blocks")
-
+        assert path is not None  # ensure_state_data guarantees availability
         return gpd.read_parquet(path)
 
     async def get_address_features(self, state_fips: str) -> gpd.GeoDataFrame:
         """
         Load address features for a state.
+
+        Requires ensure_state_data to have been called first.
 
         Args:
             state_fips: 2-digit state FIPS code
@@ -319,14 +284,8 @@ class DataManager:
             GeoDataFrame with address range features
         """
         state_fips = normalize_state(state_fips)
-
-        if self.auto_download and not self.catalog.is_available("addrfeat", state_fips):
-            await self._ensure_address_features(state_fips)
-
         path = self.catalog.get_path("addrfeat", state_fips)
-        if not path:
-            raise DataNotAvailableError(state_fips, "addrfeat")
-
+        assert path is not None  # ensure_state_data guarantees availability
         return gpd.read_parquet(path)
 
     def clear_cache(self, state: Optional[str] = None) -> None:
@@ -384,67 +343,47 @@ class DataManager:
     async def ensure_acs_data(
         self,
         state: str,
-        variables: Optional[List[str]] = None,
-        geo_level: str = "tract",
+        variables: List[str],
         show_progress: bool = True,
     ) -> None:
         """
-        Ensure ACS data is downloaded for a state.
+        Ensure ACS data is downloaded for a state (tract level).
 
         Args:
             state: State name, abbreviation, or FIPS code
-            variables: ACS variables to download (defaults to DEFAULT_ACS_VARIABLES)
-            geo_level: Geographic level (tract, block group, county)
+            variables: ACS variables to download
             show_progress: Show progress indicators
         """
         state_fips = normalize_state(state)
-        await self._ensure_acs_data(state_fips, variables, geo_level, show_progress)
+        await self._ensure_acs_data(state_fips, variables, show_progress)
 
     async def _ensure_acs_data(
         self,
         state_fips: str,
-        variables: Optional[List[str]] = None,
-        geo_level: str = "tract",
+        variables: List[str],
         show_progress: bool = True,
     ) -> None:
-        """Ensure ACS data is available for a state."""
-        # Check if already downloaded
-        dataset_key = f"acs5_{geo_level}"
+        """Ensure ACS data is available for a state (tract level)."""
+        dataset_key = "acs5_tract"
         if self.catalog.is_available(dataset_key, state_fips):
             return
 
-        # Use coordinator to prevent concurrent downloads and conversions
-        resource_key = f"ensure_acs5/{state_fips}/{geo_level}"
+        resource_key = f"ensure_acs5/{state_fips}/tract"
 
         async def do_ensure():
-            if self.catalog.is_available(dataset_key, state_fips):
-                return self.catalog.get_path(dataset_key, state_fips)
-
             if show_progress:
-                print(
-                    f"Downloading ACS data for {FIPS_STATES.get(state_fips, state_fips)} "
-                    f"at {geo_level} level..."
-                )
-
-            # Get default variables if not specified
-            vars_to_use = variables
-            if vars_to_use is None:
-                from census_lookup.census.acs import DEFAULT_ACS_VARIABLES
-
-                vars_to_use = DEFAULT_ACS_VARIABLES
+                print(f"Downloading ACS data for {FIPS_STATES.get(state_fips, state_fips)}...")
 
             # Download via Census API
-            # Use unique temp file to avoid race conditions with concurrent downloads
-            csv_path = self.temp_dir / f"acs5_{state_fips}_{geo_level}_{uuid.uuid4().hex[:8]}.csv"
+            csv_path = self.temp_dir / f"acs5_{state_fips}_tract_{uuid.uuid4().hex[:8]}.csv"
             await self.acs_downloader.download_acs_for_state(
                 state_fips,
-                variables=vars_to_use,
-                geo_level=geo_level,
+                variables=variables,
                 dest_path=csv_path,
             )
 
             # Convert to parquet
-            output_path = self.census_dir / "acs5" / geo_level / f"{state_fips}.parquet"
+            output_path = self.census_dir / "acs5" / "tract" / f"{state_fips}.parquet"
             self.converter.convert_census_csv(csv_path, output_path)
 
             # Register in catalog
@@ -466,42 +405,22 @@ class DataManager:
         self,
         state_fips: str,
         variables: List[str],
-        geo_level: GeoLevel = GeoLevel.TRACT,
     ) -> pd.DataFrame:
         """
-        Load ACS data for specified variables.
+        Load ACS data for specified variables (tract level).
+
+        Requires ensure_acs_data to have been called first.
 
         Args:
             state_fips: 2-digit state FIPS code
             variables: ACS variable codes
-            geo_level: Geographic level (TRACT, BLOCK_GROUP, or COUNTY)
 
         Returns:
             DataFrame with GEOID and requested variables
         """
         state_fips = normalize_state(state_fips)
-
-        # Map GeoLevel to string for catalog
-        geo_level_str = {
-            GeoLevel.TRACT: "tract",
-            GeoLevel.BLOCK_GROUP: "block group",
-            GeoLevel.COUNTY: "county",
-        }.get(geo_level)
-
-        if geo_level_str is None:
-            raise ValueError(
-                f"ACS data is not available at {geo_level.name} level. "
-                "Use TRACT, BLOCK_GROUP, or COUNTY."
-            )
-
-        dataset_key = f"acs5_{geo_level_str}"
-
-        if self.auto_download and not self.catalog.is_available(dataset_key, state_fips):
-            await self._ensure_acs_data(state_fips, variables, geo_level_str)
-
-        path = self.catalog.get_path(dataset_key, state_fips)
-        if not path:
-            raise DataNotAvailableError(state_fips, dataset_key)
+        path = self.catalog.get_path("acs5_tract", state_fips)
+        assert path is not None  # ensure_acs_data guarantees availability
 
         # Use DuckDB for efficient querying
         var_list = ", ".join(variables)
@@ -513,10 +432,8 @@ class DataManager:
         # Filter to only variables that exist in the data
         existing_vars = [v for v in variables if v in available_cols]
         if not existing_vars:
-            raise ValueError(
-                f"None of the requested variables found in ACS data. "
-                f"Available columns: {available_cols}"
-            )
+            # Return empty DataFrame with GEOID column if no variables match
+            return pd.DataFrame({"GEOID": pd.Series([], dtype=str)})
 
         var_list = ", ".join(existing_vars)
         sql = f"SELECT GEOID, {var_list} FROM read_parquet('{path}')"

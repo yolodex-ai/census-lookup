@@ -1,9 +1,10 @@
 """Match addresses to TIGER address range segments."""
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast
 
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import LineString, Point
 
 from census_lookup.address.normalizer import StreetNormalizer
@@ -85,9 +86,11 @@ class TIGERAddressMatcher:
         if not parsed.has_street_info:
             return GeocodingResult(match_type="no_match", match_score=0.0)
 
+        # has_street_info guarantees house_number is not None
+        assert parsed.house_number is not None
         try:
             house_number = int(parsed.house_number)
-        except (ValueError, TypeError):
+        except ValueError:
             return GeocodingResult(match_type="no_match", match_score=0.0)
 
         # Build normalized street name for matching
@@ -118,8 +121,9 @@ class TIGERAddressMatcher:
         segment, side, from_addr, to_addr, tiger_id = result
 
         # Interpolate position
+        geom = cast(LineString, segment.geometry)
         point = self._interpolate_position(
-            segment_geom=segment.geometry,
+            segment_geom=geom,
             house_number=house_number,
             from_addr=from_addr,
             to_addr=to_addr,
@@ -140,7 +144,7 @@ class TIGERAddressMatcher:
         house_number: int,
         street_name: str,
         zipcode: Optional[str] = None,
-    ) -> Optional[Tuple[gpd.GeoSeries, str, int, int, str]]:
+    ) -> Optional[Tuple[pd.Series, str, int, int, str]]:
         """
         Find the street segment containing an address.
 
@@ -181,7 +185,7 @@ class TIGERAddressMatcher:
 
     def _check_range(
         self,
-        segment: gpd.GeoSeries,
+        segment: pd.Series,
         house_number: int,
     ) -> Optional[Tuple[str, int, int]]:
         """
@@ -198,8 +202,10 @@ class TIGERAddressMatcher:
         """
         # Check left side
         try:
-            lfrom = int(segment["LFROMHN"]) if segment["LFROMHN"] else None
-            lto = int(segment["LTOHN"]) if segment["LTOHN"] else None
+            lfrom_val = segment["LFROMHN"]
+            lto_val = segment["LTOHN"]
+            lfrom = int(lfrom_val) if bool(pd.notna(lfrom_val)) else None
+            lto = int(lto_val) if bool(pd.notna(lto_val)) else None
         except (ValueError, TypeError):
             lfrom, lto = None, None
 
@@ -213,8 +219,10 @@ class TIGERAddressMatcher:
 
         # Check right side
         try:
-            rfrom = int(segment["RFROMHN"]) if segment["RFROMHN"] else None
-            rto = int(segment["RTOHN"]) if segment["RTOHN"] else None
+            rfrom_val = segment["RFROMHN"]
+            rto_val = segment["RTOHN"]
+            rfrom = int(rfrom_val) if bool(pd.notna(rfrom_val)) else None
+            rto = int(rto_val) if bool(pd.notna(rto_val)) else None
         except (ValueError, TypeError):
             rfrom, rto = None, None
 

@@ -3,7 +3,7 @@
 import asyncio
 import zipfile
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import aiohttp
 from tqdm import tqdm
@@ -31,13 +31,13 @@ class DownloadCoordinator:
 
     def __init__(self):
         self._lock = asyncio.Lock()
-        self._pending: Dict[str, asyncio.Task] = {}
+        self._pending: Dict[str, asyncio.Task[Path | None]] = {}
 
     async def download_once(
         self,
         resource_key: str,
-        download_func: Callable[[], "asyncio.Future[Path]"],
-    ) -> Path:
+        download_func: Callable[[], Coroutine[Any, Any, Path | None]],
+    ) -> Path | None:
         """
         Ensure a resource is downloaded only once, even with concurrent requests.
 
@@ -49,7 +49,7 @@ class DownloadCoordinator:
             download_func: Async function that performs the download
 
         Returns:
-            Path to the downloaded resource
+            Path to the downloaded resource, or None if not available
         """
         async with self._lock:
             # Check if there's already a pending download for this resource
@@ -143,10 +143,12 @@ class TIGERDownloader:
         url = TIGER_URLS["blocks"].format(state_fips=state_fips)
         resource_key = f"blocks/{state_fips}"
 
-        async def do_download():
+        async def do_download() -> Path:
             return await self._download_and_extract(url, dest_dir)
 
-        return await _coordinator.download_once(resource_key, do_download)
+        result = await _coordinator.download_once(resource_key, do_download)
+        assert result is not None  # do_download always returns Path
+        return result
 
     async def download_address_features(
         self,
@@ -168,10 +170,12 @@ class TIGERDownloader:
         url = TIGER_URLS["addrfeat"].format(county_fips=county_fips)
         resource_key = f"addrfeat/{county_fips}"
 
-        async def do_download():
+        async def do_download() -> Path:
             return await self._download_and_extract(url, dest_dir)
 
-        return await _coordinator.download_once(resource_key, do_download)
+        result = await _coordinator.download_once(resource_key, do_download)
+        assert result is not None  # do_download always returns Path
+        return result
 
     async def download_address_features_for_state(
         self,
@@ -200,14 +204,9 @@ class TIGERDownloader:
         # Use semaphore to limit concurrent downloads
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def download_county(county_fips: str) -> Optional[Path]:
+        async def download_county(county_fips: str) -> Path:
             async with semaphore:
-                try:
-                    return await self.download_address_features(county_fips, dest_dir)
-                except DownloadError as e:
-                    if e.status_code == 404:
-                        return None
-                    raise
+                return await self.download_address_features(county_fips, dest_dir)
 
         # Create tasks for all counties
         tasks = [download_county(fips) for fips in county_fips_list]
@@ -218,8 +217,7 @@ class TIGERDownloader:
         with tqdm(total=len(tasks), desc=desc) as pbar:
             for coro in asyncio.as_completed(tasks):
                 result = await coro
-                if result is not None:
-                    paths.append(result)
+                paths.append(result)
                 pbar.update(1)
 
         return paths
@@ -339,11 +337,10 @@ class CensusDataDownloader:
         self,
         state_fips: str,
         variables: List[str],
-        geo_level: str,
         dest_path: Path,
     ) -> Path:
         """
-        Download PL 94-171 data for a state via Census API.
+        Download PL 94-171 data for a state via Census API (block level).
 
         Uses coordination to prevent duplicate downloads.
         Variable batches are downloaded concurrently.
@@ -351,31 +348,31 @@ class CensusDataDownloader:
         Args:
             state_fips: 2-digit state FIPS code
             variables: List of variable codes to download
-            geo_level: Geographic level (block, block group, tract, county)
             dest_path: Output path for CSV file
 
         Returns:
             Path to downloaded CSV file
         """
-        resource_key = f"pl94171/{state_fips}/{geo_level}"
+        resource_key = f"pl94171/{state_fips}/block"
 
-        async def do_download():
-            return await self._download_pl94171(state_fips, variables, geo_level, dest_path)
+        async def do_download() -> Path:
+            return await self._download_pl94171(state_fips, variables, dest_path)
 
-        return await _coordinator.download_once(resource_key, do_download)
+        result = await _coordinator.download_once(resource_key, do_download)
+        assert result is not None  # do_download always returns Path
+        return result
 
     async def _download_pl94171(
         self,
         state_fips: str,
         variables: List[str],
-        geo_level: str,
         dest_path: Path,
     ) -> Path:
-        """Internal implementation for PL 94-171 download."""
+        """Internal implementation for PL 94-171 download (block level only)."""
         import pandas as pd
 
         session = await self._get_session()
-        geo_params = self._build_geo_params(state_fips, geo_level)
+        geo_params = self._build_geo_params(state_fips)
 
         # Batch variables into groups of 50
         var_batches = [variables[i : i + 50] for i in range(0, len(variables), 50)]
@@ -396,34 +393,15 @@ class CensusDataDownloader:
         tasks = [fetch_batch(batch) for batch in var_batches]
         all_data = await asyncio.gather(*tasks)
 
-        # Merge batches
-        dfs = []
-        for data in all_data:
-            df = pd.DataFrame(data[1:], columns=data[0])
-            dfs.append(df)
-
-        if len(dfs) > 1:
-            result = dfs[0]
-            for df in dfs[1:]:
-                result = result.merge(df, on="GEO_ID", how="outer")
-        else:
-            result = dfs[0]
+        # PL 94-171 has <50 variables, so only one batch
+        data = all_data[0]
+        result = pd.DataFrame(data[1:], columns=data[0])
 
         result.to_csv(dest_path, index=False)
         return dest_path
 
-    def _build_geo_params(self, state_fips: str, geo_level: str) -> dict:
-        """Build geographic parameters for Census API.
-
-        Note: PL 94-171 data is always downloaded at block level.
-        Higher geographic levels are derived by aggregating block data.
-        """
-        if geo_level != "block":
-            raise ValueError(
-                f"PL 94-171 download only supports block level, got: {geo_level}. "
-                "Higher levels are derived from block data."
-            )
-
+    def _build_geo_params(self, state_fips: str) -> dict[str, str]:
+        """Build geographic parameters for Census API (block level only)."""
         return {
             "for": "block:*",
             "in": f"state:{state_fips} county:* tract:*",
@@ -488,11 +466,10 @@ class ACSDataDownloader:
         self,
         state_fips: str,
         variables: List[str],
-        geo_level: str,
         dest_path: Path,
     ) -> Path:
         """
-        Download ACS 5-Year data for a state via Census API.
+        Download ACS 5-Year data for a state via Census API (tract level).
 
         Uses coordination to prevent duplicate downloads.
         Variable batches are downloaded concurrently.
@@ -500,40 +477,31 @@ class ACSDataDownloader:
         Args:
             state_fips: 2-digit state FIPS code
             variables: List of variable codes to download
-            geo_level: Geographic level (tract, block group, county)
-                       Note: ACS is not available at block level
             dest_path: Output path for CSV file
 
         Returns:
             Path to downloaded CSV file
         """
-        resource_key = f"acs/{state_fips}/{geo_level}/{self.year}"
+        resource_key = f"acs/{state_fips}/tract/{self.year}"
 
-        async def do_download():
-            return await self._download_acs(state_fips, variables, geo_level, dest_path)
+        async def do_download() -> Path:
+            return await self._download_acs(state_fips, variables, dest_path)
 
-        return await _coordinator.download_once(resource_key, do_download)
+        result = await _coordinator.download_once(resource_key, do_download)
+        assert result is not None  # do_download always returns Path
+        return result
 
     async def _download_acs(
         self,
         state_fips: str,
         variables: List[str],
-        geo_level: str,
         dest_path: Path,
     ) -> Path:
-        """Internal implementation for ACS download."""
+        """Internal implementation for ACS download (tract level only)."""
         import pandas as pd
 
-        # Validate geo_level
-        valid_levels = ["tract", "block group", "county"]
-        if geo_level not in valid_levels:
-            raise ValueError(
-                f"Invalid geo_level for ACS: {geo_level}. "
-                f"ACS is available at: {', '.join(valid_levels)}"
-            )
-
         session = await self._get_session()
-        geo_params = self._build_geo_params(state_fips, geo_level)
+        geo_params = self._build_geo_params(state_fips)
 
         # Batch variables into groups of 50 (Census API limit)
         var_batches = [variables[i : i + 50] for i in range(0, len(variables), 50)]
@@ -575,8 +543,10 @@ class ACSDataDownloader:
         if len(dfs) > 1:
             result = dfs[0]
             for df in dfs[1:]:
-                df_no_name = df.drop(columns=["NAME"], errors="ignore")
-                result = result.merge(df_no_name, on="GEO_ID", how="outer")
+                # Drop columns that would duplicate during merge
+                cols_to_drop = ["NAME", "state", "county", "tract"]
+                df_clean = df.drop(columns=cols_to_drop, errors="ignore")
+                result = result.merge(df_clean, on="GEO_ID", how="outer")
         else:
             result = dfs[0]
 
@@ -592,20 +562,9 @@ class ACSDataDownloader:
         result.to_csv(dest_path, index=False)
         return dest_path
 
-    def _build_geo_params(self, state_fips: str, geo_level: str) -> dict:
-        """Build geographic parameters for Census API."""
-        params = {}
-
-        if geo_level == "block group":
-            params["for"] = "block group:*"
-            params["in"] = f"state:{state_fips} county:* tract:*"
-        elif geo_level == "tract":
-            params["for"] = "tract:*"
-            params["in"] = f"state:{state_fips} county:*"
-        elif geo_level == "county":
-            params["for"] = "county:*"
-            params["in"] = f"state:{state_fips}"
-        else:
-            raise ValueError(f"Unknown geo_level: {geo_level}")
-
-        return params
+    def _build_geo_params(self, state_fips: str) -> dict[str, str]:
+        """Build geographic parameters for Census API (tract level only)."""
+        return {
+            "for": "tract:*",
+            "in": f"state:{state_fips} county:*",
+        }

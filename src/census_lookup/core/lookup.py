@@ -3,7 +3,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import geopandas as gpd
 import pandas as pd
@@ -98,7 +98,6 @@ class CensusLookup:
         variable_groups: Optional[List[str]] = None,
         acs_variables: Optional[List[str]] = None,
         acs_variable_groups: Optional[List[str]] = None,
-        auto_download: bool = True,
     ):
         """
         Initialize CensusLookup.
@@ -110,7 +109,6 @@ class CensusLookup:
             variable_groups: PL 94-171 variable groups (e.g., ["population", "housing"])
             acs_variables: ACS variables (e.g., ["B19013_001E", "B15003_022E"])
             acs_variable_groups: ACS variable groups (e.g., ["income", "education"])
-            auto_download: Whether to automatically download missing data
 
         Note:
             ACS data is only available at tract level and above. If you request
@@ -118,20 +116,16 @@ class CensusLookup:
             be joined at tract level.
         """
         self.geo_level = geo_level
-        self.auto_download = auto_download
 
         # Initialize data manager
-        self._data_manager = DataManager(
-            data_dir=data_dir,
-            auto_download=auto_download,
-        )
+        self._data_manager = DataManager(data_dir=data_dir)
 
         # Determine variables to use
         self._variables = self._resolve_variables(variables, variable_groups)
         self._acs_variables = self._resolve_acs_variables(acs_variables, acs_variable_groups)
 
         # State-specific components (loaded lazily)
-        self._loaded_states: Dict[str, Dict] = {}
+        self._loaded_states: Dict[str, Dict[str, Any]] = {}
 
         # Shared components
         self._parser = AddressParser()
@@ -199,7 +193,6 @@ class CensusLookup:
             await self._data_manager.ensure_acs_data(
                 state_fips,
                 variables=self._acs_variables,
-                geo_level="tract",  # ACS is at tract level
                 show_progress=True,
             )
 
@@ -223,13 +216,7 @@ class CensusLookup:
     async def _ensure_state_loaded(self, state_fips: str) -> None:
         """Ensure a state is loaded, loading it if necessary."""
         if state_fips not in self._loaded_states:
-            if self.auto_download:
-                await self.load_state(state_fips)
-            else:
-                raise ValueError(
-                    f"State {state_fips} not loaded. "
-                    "Call load_state() first or enable auto_download."
-                )
+            await self.load_state(state_fips)
 
     def _get_state_from_address(self, parsed: ParsedAddress) -> Optional[str]:
         """Extract state FIPS from parsed address."""
@@ -275,15 +262,8 @@ class CensusLookup:
                 match_type="no_state",
             )
 
-        # Ensure state is loaded
-        try:
-            await self._ensure_state_loaded(state_fips)
-        except ValueError:
-            return LookupResult(
-                input_address=address,
-                parsed_address=parsed.to_dict(),
-                match_type="state_not_loaded",
-            )
+        # Ensure state is loaded (state_fips is already validated by _get_state_from_address)
+        await self._ensure_state_loaded(state_fips)
 
         state_data = self._loaded_states[state_fips]
 
@@ -326,22 +306,21 @@ class CensusLookup:
         # Get ACS data if requested (at tract level)
         if self._acs_variables:
             tract_geoid = block_geoid[:11]  # Truncate to tract level
-            try:
-                acs_df = await self._data_manager.get_acs_data(
-                    components.state,
-                    self._acs_variables,
-                    GeoLevel.TRACT,
-                )
-                # Find matching tract
-                acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
-                if not acs_row.empty:
-                    for var in self._acs_variables:
-                        if var in acs_row.columns:
-                            value = acs_row[var].iloc[0]
-                            census_data[var] = value if pd.notna(value) else None
-            except Exception:
-                # ACS data not available - continue without it
-                pass
+            acs_df = await self._data_manager.get_acs_data(
+                components.state,
+                self._acs_variables,
+            )
+            # Find matching tract
+            acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
+            if not acs_row.empty:
+                for var in self._acs_variables:
+                    if var in acs_row.columns:
+                        col = cast(pd.Series, acs_row[var])
+                        raw_value: Any = col.iloc[0]
+                        if bool(pd.notna(raw_value)):
+                            census_data[var] = float(raw_value)
+                        else:
+                            census_data[var] = None
 
         return LookupResult(
             input_address=address,
@@ -423,7 +402,7 @@ class CensusLookup:
 
         # Try each loaded state
         block_geoid = None
-        for state_fips, state_data in self._loaded_states.items():
+        for _, state_data in self._loaded_states.items():
             geoid = state_data["spatial_index"].lookup(point)
             if geoid:
                 block_geoid = geoid
@@ -449,22 +428,21 @@ class CensusLookup:
         # Get ACS data if requested (at tract level)
         if self._acs_variables:
             tract_geoid = block_geoid[:11]  # Truncate to tract level
-            try:
-                acs_df = await self._data_manager.get_acs_data(
-                    components.state,
-                    self._acs_variables,
-                    GeoLevel.TRACT,
-                )
-                # Find matching tract
-                acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
-                if not acs_row.empty:
-                    for var in self._acs_variables:
-                        if var in acs_row.columns:
-                            value = acs_row[var].iloc[0]
-                            census_data[var] = value if pd.notna(value) else None
-            except Exception:
-                # ACS data not available - continue without it
-                pass
+            acs_df = await self._data_manager.get_acs_data(
+                components.state,
+                self._acs_variables,
+            )
+            # Find matching tract
+            acs_row = acs_df[acs_df["GEOID"] == tract_geoid]
+            if not acs_row.empty:
+                for var in self._acs_variables:
+                    if var in acs_row.columns:
+                        col = cast(pd.Series, acs_row[var])
+                        raw_value: Any = col.iloc[0]
+                        if bool(pd.notna(raw_value)):
+                            census_data[var] = float(raw_value)
+                        else:
+                            census_data[var] = None
 
         return LookupResult(
             latitude=lat,
@@ -502,19 +480,17 @@ class CensusLookup:
         level = geo_level or self.geo_level
 
         # Create GeoSeries of points
-        points = gpd.GeoSeries(
-            [
-                Point(lon, lat) if pd.notna(lat) and pd.notna(lon) else None
-                for lat, lon in zip(df[lat_column], df[lon_column])
-            ],
-            crs="EPSG:4269",  # NAD 83
-        )
+        point_list: list[Point | None] = [
+            Point(lon, lat) if pd.notna(lat) and pd.notna(lon) else None
+            for lat, lon in zip(df[lat_column], df[lon_column])
+        ]
+        points = gpd.GeoSeries(cast(Any, point_list), crs="EPSG:4269")  # NAD 83
 
         # Spatial join with each loaded state
         result = df.copy()
         result["_geoid"] = None
 
-        for state_fips, state_data in self._loaded_states.items():
+        for _, state_data in self._loaded_states.items():
             geoids = state_data["spatial_index"].lookup_batch(points)
             # Fill in where we found matches
             mask = geoids["GEOID"].notna() & result["_geoid"].isna()

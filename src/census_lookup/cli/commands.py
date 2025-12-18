@@ -36,75 +36,25 @@ def cli():
     multiple=True,
     help="Census variables to include (can be specified multiple times)",
 )
-@click.option(
-    "--format",
-    "-f",
-    "output_format",
-    default="json",
-    type=click.Choice(["json", "csv", "table"]),
-    help="Output format",
-)
-@click.option(
-    "--no-download",
-    is_flag=True,
-    help="Don't auto-download missing data",
-)
-def lookup(address: str, level: str, variables: tuple, output_format: str, no_download: bool):
+def lookup(address: str, level: str, variables: tuple[str, ...]):
     """Look up census data for a single address."""
-    asyncio.run(_lookup_async(address, level, variables, output_format, no_download))
+    asyncio.run(_lookup_async(address, level, variables))
 
 
-async def _lookup_async(
-    address: str, level: str, variables: tuple, output_format: str, no_download: bool
-):
+async def _lookup_async(address: str, level: str, variables: tuple[str, ...]):
     """Async implementation of lookup command."""
     geo_level = GeoLevel[level.upper()]
 
     lookup_instance = CensusLookup(
         geo_level=geo_level,
         variables=list(variables) if variables else None,
-        auto_download=not no_download,
     )
 
     try:
         result = await lookup_instance.geocode(address)
-
-        if output_format == "json":
-            click.echo(json.dumps(result.to_dict(), indent=2, default=str))
-        elif output_format == "csv":
-            click.echo(result.to_series().to_csv())
-        else:
-            _print_result_table(result)
+        click.echo(json.dumps(result.to_dict(), indent=2, default=str))
     finally:
         await lookup_instance.close()
-
-
-def _print_result_table(result):
-    """Print a result as a formatted table."""
-    data = result.to_dict()
-
-    click.echo("\n" + "=" * 50)
-    click.echo("CENSUS LOOKUP RESULT")
-    click.echo("=" * 50)
-
-    if result.is_matched:
-        click.echo(f"\nInput:    {data['input_address']}")
-        click.echo(f"Matched:  {data['matched_address']}")
-        click.echo(f"Location: ({data['latitude']:.6f}, {data['longitude']:.6f})")
-        click.echo(f"GEOID:    {data['geoid']}")
-        click.echo(f"Match:    {data['match_type']} (score: {data['match_score']:.2f})")
-
-        if result.census_data:
-            click.echo("\nCensus Data:")
-            for var, value in result.census_data.items():
-                desc = VARIABLES.get(var, var)
-                click.echo(f"  {var}: {value} ({desc})")
-    else:
-        click.echo(f"\nInput: {data['input_address']}")
-        click.echo(f"Status: {data['match_type']}")
-        click.echo("No match found.")
-
-    click.echo("")
 
 
 @cli.command()
@@ -123,18 +73,16 @@ def _print_result_table(result):
     type=click.Choice(["block", "block_group", "tract", "county"]),
 )
 @click.option("--variables", "-v", multiple=True, help="Census variables to include")
-@click.option("--no-download", is_flag=True, help="Don't auto-download missing data")
 def batch(
     input_file: str,
     output_file: str,
     address_column: str,
     level: str,
-    variables: tuple,
-    no_download: bool,
+    variables: tuple[str, ...],
 ):
     """Process a batch of addresses from CSV file."""
     asyncio.run(
-        _batch_async(input_file, output_file, address_column, level, variables, no_download)
+        _batch_async(input_file, output_file, address_column, level, variables)
     )
 
 
@@ -143,8 +91,7 @@ async def _batch_async(
     output_file: str,
     address_column: str,
     level: str,
-    variables: tuple,
-    no_download: bool,
+    variables: tuple[str, ...],
 ):
     """Async implementation of batch command."""
     input_path = Path(input_file)
@@ -164,12 +111,13 @@ async def _batch_async(
     lookup_instance = CensusLookup(
         geo_level=geo_level,
         variables=list(variables) if variables else None,
-        auto_download=not no_download,
     )
 
     try:
+        # df[column] returns pd.Series for single column
+        address_series: pd.Series = df[address_column]  # type: ignore[assignment]
         results = await lookup_instance.geocode_batch(
-            df[address_column],
+            address_series,
             progress=True,
         )
 
@@ -197,22 +145,15 @@ async def _batch_async(
 
 
 @cli.command()
-@click.argument("states", nargs=-1)
-@click.option("--all", "download_all", is_flag=True, help="Download data for all states")
-def download(states: tuple, download_all: bool):
+@click.argument("states", nargs=-1, required=True)
+def download(states: tuple[str, ...]):
     """Pre-download data for specified states."""
-    asyncio.run(_download_async(states, download_all))
+    asyncio.run(_download_async(states))
 
 
-async def _download_async(states: tuple, download_all: bool):
+async def _download_async(states: tuple[str, ...]):
     """Async implementation of download command."""
     manager = DataManager()
-
-    if download_all:
-        states = tuple(FIPS_STATES.keys())
-
-    if not states:
-        raise click.ClickException("Specify state(s) to download or use --all")
 
     try:
         for state in states:
@@ -258,11 +199,12 @@ def info():
 
 def _format_size(size_bytes: int) -> str:
     """Format bytes as human-readable string."""
+    size: float = float(size_bytes)
     for unit in ["B", "KB", "MB", "GB"]:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 @cli.command()
@@ -313,14 +255,13 @@ def clear(state: Optional[str]):
     type=click.Choice(["block", "block_group", "tract", "county"]),
 )
 @click.option("--variables", "-v", multiple=True, help="Census variables to include")
-@click.option("--no-download", is_flag=True, help="Don't auto-download missing data")
-def coords(lat: float, lon: float, level: str, variables: tuple, no_download: bool):
+def coords(lat: float, lon: float, level: str, variables: tuple[str, ...]):
     """Look up census data for coordinates (lat, lon)."""
-    asyncio.run(_coords_async(lat, lon, level, variables, no_download))
+    asyncio.run(_coords_async(lat, lon, level, variables))
 
 
 async def _coords_async(
-    lat: float, lon: float, level: str, variables: tuple, no_download: bool
+    lat: float, lon: float, level: str, variables: tuple[str, ...]
 ):
     """Async implementation of coords command."""
     geo_level = GeoLevel[level.upper()]
@@ -328,11 +269,18 @@ async def _coords_async(
     lookup_instance = CensusLookup(
         geo_level=geo_level,
         variables=list(variables) if variables else None,
-        auto_download=not no_download,
     )
 
     try:
-        # Need to load states that might contain these coordinates
+        # Load any previously downloaded states from the catalog
+        available_states = lookup_instance._data_manager.list_available_states("blocks")
+        if available_states:
+            click.echo(f"Loading {len(available_states)} downloaded state(s)...")
+            for state in available_states:
+                await lookup_instance.load_state(state)
+        else:
+            click.echo("No states downloaded. Run 'census-lookup download <state>' first.")
+
         click.echo("Attempting to find containing state...")
 
         result = await lookup_instance.lookup_coordinates(lat, lon)
