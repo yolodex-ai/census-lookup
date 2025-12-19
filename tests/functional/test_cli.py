@@ -5,13 +5,28 @@ Run with: pytest tests/functional/test_cli.py -v -s
 """
 
 import json
+import re
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote
 
 import pandas as pd
+from aioresponses import CallbackResult, aioresponses
 from click.testing import CliRunner
 
 from census_lookup.cli.commands import cli
+
+from .conftest import (
+    DC_COUNTY_FIPS,
+    DC_STATE_FIPS,
+    TEST_TRACT_GEOID,
+    create_acs_api_response,
+    create_dc_addrfeat_gdf,
+    create_dc_blocks_gdf,
+    create_dc_census_df,
+    create_pl94171_zip,
+    create_shapefile_zip,
+)
 
 
 class TestCLILookup:
@@ -409,97 +424,161 @@ class TestCLIEdgeCases:
         assert "TB" in _format_size(1024 * 1024 * 1024 * 1024 * 2)
 
 
+def setup_data_dir(tmp_path: Path) -> Path:
+    """Create an isolated data directory for tests."""
+    data_dir = tmp_path / "census-lookup"
+    data_dir.mkdir()
+    (data_dir / "tiger" / "blocks").mkdir(parents=True)
+    (data_dir / "tiger" / "addrfeat").mkdir(parents=True)
+    (data_dir / "census" / "pl94171").mkdir(parents=True)
+    (data_dir / "census" / "acs").mkdir(parents=True)
+    (data_dir / "temp").mkdir(parents=True)
+    return data_dir
+
+
+def setup_standard_mocks(mocked: aioresponses) -> None:
+    """Set up standard mocks for TIGER and Census endpoints."""
+    blocks_gdf = create_dc_blocks_gdf()
+    addrfeat_gdf = create_dc_addrfeat_gdf()
+    census_df = create_dc_census_df()
+
+    blocks_zip = create_shapefile_zip(blocks_gdf, f"tl_2020_{DC_STATE_FIPS}_tabblock20")
+    addrfeat_zip = create_shapefile_zip(addrfeat_gdf, f"tl_2020_{DC_COUNTY_FIPS}_addrfeat")
+    pl94171_zip = create_pl94171_zip("dc", census_df)
+
+    # Mock TIGER block downloads
+    blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+    mocked.get(blocks_pattern, body=blocks_zip, repeat=True)
+
+    # Mock TIGER address feature downloads
+    addrfeat_pattern = re.compile(rf".*census\.gov.*ADDRFEAT.*{DC_COUNTY_FIPS}.*\.zip")
+    mocked.get(addrfeat_pattern, body=addrfeat_zip, repeat=True)
+
+    # Mock PL 94-171 bulk file downloads
+    pl_pattern = re.compile(r".*census\.gov.*Redistricting.*\.zip")
+    mocked.get(pl_pattern, body=pl94171_zip, repeat=True)
+
+    # Mock ACS API
+    def acs_callback(url, **kwargs):
+        get_param = unquote(url.query.get("get", ""))
+        if get_param:
+            requested_vars = [v for v in get_param.split(",") if v.startswith("B")]
+        else:
+            requested_vars = ["B19013_001E"]
+        response = create_acs_api_response(requested_vars, [TEST_TRACT_GEOID])
+        return CallbackResult(status=200, payload=response)
+
+    acs_pattern = re.compile(r".*api\.census\.gov/data/\d+/acs/acs5.*")
+    mocked.get(acs_pattern, callback=acs_callback, repeat=True)
+
+
 class TestCLIACSVariables:
     """Test CLI with ACS variables."""
 
-    def test_lookup_with_acs_variable(self, mock_census_http, isolated_data_dir, monkeypatch):
+    def test_lookup_with_acs_variable(self, tmp_path, monkeypatch):
         """Look up address with ACS variable (B prefix) auto-routes to acs_variables."""
-        monkeypatch.setenv("HOME", str(isolated_data_dir.parent))
+        data_dir = setup_data_dir(tmp_path)
+        monkeypatch.setenv("HOME", str(data_dir.parent))
 
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "lookup",
-                "1600 Pennsylvania Avenue NW, Washington, DC",
-                "-v",
-                "B19013_001E",  # ACS variable - median income
-            ],
-        )
+        with aioresponses() as mocked:
+            setup_standard_mocks(mocked)
 
-        assert result.exit_code == 0, result.output
-        # Should contain the ACS variable in output
-        assert "B19013_001E" in result.output
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "lookup",
+                    "1600 Pennsylvania Avenue NW, Washington, DC",
+                    "-v",
+                    "B19013_001E",  # ACS variable - median income
+                ],
+            )
 
-    def test_lookup_with_mixed_variables(self, mock_census_http, isolated_data_dir, monkeypatch):
+            assert result.exit_code == 0, result.output
+            # Should contain the ACS variable in output
+            assert "B19013_001E" in result.output
+
+    def test_lookup_with_mixed_variables(self, tmp_path, monkeypatch):
         """Look up address with both PL94171 and ACS variables."""
-        monkeypatch.setenv("HOME", str(isolated_data_dir.parent))
+        data_dir = setup_data_dir(tmp_path)
+        monkeypatch.setenv("HOME", str(data_dir.parent))
 
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "lookup",
-                "1600 Pennsylvania Avenue NW, Washington, DC",
-                "-v",
-                "P1_001N",  # PL94171 variable
-                "-v",
-                "B19013_001E",  # ACS variable
-            ],
-        )
+        with aioresponses() as mocked:
+            setup_standard_mocks(mocked)
 
-        assert result.exit_code == 0, result.output
-        # Should contain both variables
-        assert "P1_001N" in result.output
-        assert "B19013_001E" in result.output
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "lookup",
+                    "1600 Pennsylvania Avenue NW, Washington, DC",
+                    "-v",
+                    "P1_001N",  # PL94171 variable
+                    "-v",
+                    "B19013_001E",  # ACS variable
+                ],
+            )
+
+            assert result.exit_code == 0, result.output
+            # Should contain both variables
+            assert "P1_001N" in result.output
+            assert "B19013_001E" in result.output
 
 
 class TestCLIDownloadErrors:
     """Test CLI download error handling."""
 
-    def test_download_invalid_state_shows_error(self, mock_census_http_404, tmp_path, monkeypatch):
+    def test_download_invalid_state_shows_error(self, tmp_path, monkeypatch):
         """Download of invalid state shows error message."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ["download", "INVALID_STATE"])
+        with aioresponses() as mocked:
+            # Mock 404 for all block downloads
+            blocks_pattern = re.compile(r".*census\.gov.*TABBLOCK20.*\.zip")
+            mocked.get(blocks_pattern, status=404, repeat=True)
 
-        # Should complete but show error
-        assert "Error" in result.output
+            runner = CliRunner()
+            result = runner.invoke(cli, ["download", "INVALID_STATE"])
+
+            # Should complete but show error
+            assert "Error" in result.output
 
 
 class TestCLICoordsWithPreloadedData:
     """Test CLI coords command with preloaded data."""
 
-    def test_coords_success_output(self, mock_census_http, isolated_data_dir, monkeypatch):
+    def test_coords_success_output(self, tmp_path, monkeypatch):
         """Coords command outputs JSON when data is found."""
-        # Override HOME so CLI uses our test data directory
-        monkeypatch.setenv("HOME", str(isolated_data_dir.parent))
+        data_dir = setup_data_dir(tmp_path)
+        monkeypatch.setenv("HOME", str(data_dir.parent))
 
-        runner = CliRunner()
+        with aioresponses() as mocked:
+            setup_standard_mocks(mocked)
 
-        # First download DC data
-        result = runner.invoke(cli, ["download", "DC"])
-        assert result.exit_code == 0, result.output
+            runner = CliRunner()
 
-        # Now coords should find data
-        result = runner.invoke(
-            cli,
-            [
-                "coords",
-                "-l",
-                "tract",
-                "-v",
-                "P1_001N",
-                "--",
-                "38.8977",
-                "-77.0365",
-            ],
-        )
+            # First download DC data
+            result = runner.invoke(cli, ["download", "DC"])
+            assert result.exit_code == 0, result.output
 
-        assert result.exit_code == 0
-        # Should output JSON with block GEOID
-        assert "block" in result.output.lower()
+            # Now coords should find data
+            result = runner.invoke(
+                cli,
+                [
+                    "coords",
+                    "-l",
+                    "tract",
+                    "-v",
+                    "P1_001N",
+                    "--",
+                    "38.8977",
+                    "-77.0365",
+                ],
+            )
+
+            assert result.exit_code == 0
+            # Should output JSON with block GEOID
+            assert "block" in result.output.lower()
 
     def test_coords_no_states_downloaded(self, tmp_path, monkeypatch):
         """Coords command shows message when no states are downloaded."""
