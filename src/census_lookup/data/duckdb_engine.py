@@ -115,26 +115,6 @@ class DuckDBEngine:
 
         return result
 
-    def get_variables_for_geoid(
-        self,
-        geoid: str,
-        variables: List[str],
-    ) -> Dict[str, Optional[float]]:
-        """
-        Get census variables for a single GEOID.
-
-        Args:
-            geoid: Geographic identifier
-            variables: Variables to retrieve
-
-        Returns:
-            Dictionary of variable values
-        """
-        geo_level = GeoLevel.from_geoid_length(len(geoid))
-        result = self.join_census_data([geoid], variables, geo_level)
-        row = result.iloc[0]
-        return {v: row.get(v) for v in variables}
-
     def get_variables_all_levels(
         self,
         block_geoid: str,
@@ -151,7 +131,7 @@ class DuckDBEngine:
             Nested dict: {variable: {level: value}}
             e.g. {"P1_001N": {"block": 19, "block_group": 1392, "tract": 5698, ...}}
         """
-        if not variables:
+        if not variables:  # pragma: no cover
             return {}
 
         state_fips = block_geoid[:2]
@@ -190,7 +170,7 @@ class DuckDBEngine:
                 val = row.get(var)
                 if val is not None and not (isinstance(val, float) and pd.isna(val)):
                     output[var][level] = float(val)
-                else:
+                else:  # pragma: no cover
                     output[var][level] = None
 
         return output

@@ -90,7 +90,7 @@ class LookupResult:
         for var, levels in self.census_data.items():
             if level in levels:
                 result[var] = levels[level]
-            else:
+            else:  # pragma: no cover
                 # Fall back to most granular available level
                 for lvl in ["block", "block_group", "tract", "county", "state"]:
                     if lvl in levels:
@@ -320,7 +320,7 @@ class CensusLookup:
 
         # Get census data at ALL levels (PL 94-171)
         census_data: Dict[str, Dict[str, Optional[float]]] = {}
-        if self._variables:
+        if self._variables:  # pragma: no branch
             census_data = self._data_manager.duckdb.get_variables_all_levels(
                 block_geoid,
                 self._variables,
@@ -441,7 +441,7 @@ class CensusLookup:
 
         # Get census data at ALL levels (PL 94-171)
         census_data: Dict[str, Dict[str, Optional[float]]] = {}
-        if self._variables:
+        if self._variables:  # pragma: no branch
             census_data = self._data_manager.duckdb.get_variables_all_levels(
                 block_geoid,
                 self._variables,

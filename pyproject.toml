@@ -1,6 +1,6 @@
 [project]
 name = "census-lookup"
-version = "0.2.0"
+version = "0.2.1"
 description = "Offline address-to-Census data mapping for Python with PL 94-171 and ACS support"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -106,6 +106,7 @@ omit = [
 ]
 
 [tool.coverage.report]
+fail_under = 100
 exclude_lines = [
     # Standard exclusions
     "pragma: no cover",

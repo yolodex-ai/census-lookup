@@ -25,20 +25,6 @@ class GeoLevel(Enum):
         }
         return lengths[self]
 
-    @classmethod
-    def from_geoid_length(cls, length: int) -> "GeoLevel":
-        """Determine GeoLevel from GEOID length."""
-        if length >= 15:
-            return cls.BLOCK
-        elif length >= 12:
-            return cls.BLOCK_GROUP
-        elif length >= 11:
-            return cls.TRACT
-        elif length >= 5:
-            return cls.COUNTY
-        else:
-            return cls.STATE
-
 
 @dataclass
 class GEOIDComponents:
