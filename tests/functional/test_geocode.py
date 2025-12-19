@@ -5,16 +5,15 @@ Tests the core geocoding functionality through the public API.
 
 import pandas as pd
 
-from census_lookup import CensusLookup, GeoLevel
+from census_lookup import CensusLookup
 
 
 class TestSingleAddressLookup:
     """User can look up a single address and get census data."""
 
     async def test_basic_lookup(self, mock_census_http, isolated_data_dir):
-        """Look up an address, get GEOID and population."""
+        """Look up an address, get GEOID and population at all levels."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -22,60 +21,53 @@ class TestSingleAddressLookup:
         result = await lookup.geocode("1600 Pennsylvania Avenue NW, Washington, DC")
 
         assert result.is_matched
-        assert result.geoid is not None
-        assert result.census_data["P1_001N"] > 0
+        assert result.block is not None
+        # Census data is now nested by level
+        assert result.census_data["P1_001N"]["block"] > 0
 
-    async def test_block_vs_county_aggregation(self, mock_census_http, isolated_data_dir):
-        """Data is properly aggregated at different geographic levels."""
-        block_lookup = CensusLookup(
-            geo_level=GeoLevel.BLOCK,
-            variables=["P1_001N"],
-            data_dir=isolated_data_dir,
-        )
-        county_lookup = CensusLookup(
-            geo_level=GeoLevel.COUNTY,
+    async def test_all_levels_returned(self, mock_census_http, isolated_data_dir):
+        """Data is returned at all geographic levels."""
+        lookup = CensusLookup(
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
 
-        block_result = await block_lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
-        county_result = await county_lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+        result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
 
-        # GEOIDs have correct length
-        assert len(block_result.geoid) == 15
-        assert len(county_result.geoid) == 5
+        assert result.is_matched
+        # All GEOIDs should be populated
+        assert len(result.block) == 15
+        assert len(result.block_group) == 12
+        assert len(result.tract) == 11
+        assert len(result.county_fips) == 5
+        assert len(result.state_fips) == 2
 
-        # County population >= block population (aggregation)
-        assert county_result.census_data["P1_001N"] >= block_result.census_data["P1_001N"]
+        # Population at different levels (county >= tract >= block)
+        census_data = result.census_data["P1_001N"]
+        assert census_data["county"] >= census_data["tract"]
+        assert census_data["tract"] >= census_data["block"]
 
-    async def test_all_geographic_levels(self, mock_census_http, isolated_data_dir):
-        """Test all geographic levels return correct GEOID lengths."""
+    async def test_all_geographic_levels_in_result(self, mock_census_http, isolated_data_dir):
+        """Test all geographic levels are returned in the result."""
         address = "1600 Pennsylvania Avenue NW, Washington, DC"
 
-        expected_lengths = {
-            GeoLevel.BLOCK: 15,
-            GeoLevel.BLOCK_GROUP: 12,
-            GeoLevel.TRACT: 11,
-            GeoLevel.COUNTY: 5,
-            GeoLevel.STATE: 2,
-        }
+        lookup = CensusLookup(
+            variables=["P1_001N"],
+            data_dir=isolated_data_dir,
+        )
+        result = await lookup.geocode(address)
 
-        for level, expected_len in expected_lengths.items():
-            lookup = CensusLookup(
-                geo_level=level,
-                variables=["P1_001N"],
-                data_dir=isolated_data_dir,
-            )
-            result = await lookup.geocode(address)
-
-            assert result.is_matched, f"Level {level} should match"
-            msg = f"Level {level} should have {expected_len} digit GEOID"
-            assert len(result.geoid) == expected_len, msg
+        assert result.is_matched
+        # All levels should be present in result
+        assert result.block is not None and len(result.block) == 15
+        assert result.block_group is not None and len(result.block_group) == 12
+        assert result.tract is not None and len(result.tract) == 11
+        assert result.county_fips is not None and len(result.county_fips) == 5
+        assert result.state_fips is not None and len(result.state_fips) == 2
 
     async def test_geoid_components_populated(self, mock_census_http, isolated_data_dir):
         """GEOID components are correctly parsed from the result."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.BLOCK,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -83,7 +75,7 @@ class TestSingleAddressLookup:
 
         assert result.is_matched
         # Full block GEOID should be 15 digits
-        assert len(result.geoid) == 15
+        assert len(result.block) == 15
         # Components should be populated
         assert result.state_fips == "11"  # DC
         assert result.county_fips is not None
@@ -95,7 +87,6 @@ class TestSingleAddressLookup:
     async def test_geoid_components_in_dict(self, mock_census_http, isolated_data_dir):
         """GEOID components are included in to_dict output."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.BLOCK,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -111,9 +102,8 @@ class TestSingleAddressLookup:
         assert data["state_fips"] == "11"
 
     async def test_result_to_dict(self, mock_census_http, isolated_data_dir):
-        """Result can be converted to dictionary."""
+        """Result can be converted to dictionary with nested census data."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -122,15 +112,17 @@ class TestSingleAddressLookup:
         data = result.to_dict()
 
         assert "input_address" in data
-        assert "geoid" in data
+        assert "block" in data  # GEOIDs at all levels
         assert "latitude" in data
         assert "longitude" in data
+        # Census data is nested
         assert "P1_001N" in data
+        assert isinstance(data["P1_001N"], dict)
+        assert "block" in data["P1_001N"]
 
     async def test_result_to_series(self, mock_census_http, isolated_data_dir):
-        """Result can be converted to pandas Series."""
+        """Result can be converted to pandas Series (flattened at block level)."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -139,7 +131,10 @@ class TestSingleAddressLookup:
         series = result.to_series()
 
         assert isinstance(series, pd.Series)
-        assert "geoid" in series.index
+        assert "block" in series.index
+        # Flattened census data should be a scalar, not nested
+        assert "P1_001N" in series.index
+        assert not isinstance(series["P1_001N"], dict)
 
 
 class TestAddressFormats:
@@ -148,7 +143,6 @@ class TestAddressFormats:
     async def test_address_with_directionals(self, mock_census_http, isolated_data_dir):
         """Address with directional prefixes parses correctly."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -160,7 +154,6 @@ class TestAddressFormats:
     async def test_address_with_cardinal_directional(self, mock_census_http, isolated_data_dir):
         """Address with N/S/E/W directional."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -174,7 +167,6 @@ class TestAddressFormats:
     async def test_address_with_ordinal_street(self, mock_census_http, isolated_data_dir):
         """Address with ordinal street name (1st, 2nd, etc.)."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -187,7 +179,6 @@ class TestAddressFormats:
     async def test_address_with_abbreviations(self, mock_census_http, isolated_data_dir):
         """Address with street type abbreviations works."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -199,7 +190,6 @@ class TestAddressFormats:
     async def test_address_with_zipcode(self, mock_census_http, isolated_data_dir):
         """Address with zipcode parses correctly."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -211,7 +201,6 @@ class TestAddressFormats:
     async def test_address_lowercase(self, mock_census_http, isolated_data_dir):
         """Lowercase address is normalized and matches."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )

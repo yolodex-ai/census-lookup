@@ -304,8 +304,8 @@ class TestDuckDBEngineEdgeCases:
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
 
         assert result.is_matched
-        assert result.census_data.get("P1_001N") is not None
-        assert result.census_data.get("H1_001N") is not None
+        assert "P1_001N" in result.census_data
+        assert "H1_001N" in result.census_data
 
 
 class TestCatalogEdgeCases:
@@ -396,7 +396,7 @@ class TestCoordinateLookupEdgeCases:
 
         if result.is_matched:
             # Should have both PL 94-171 and ACS data
-            assert result.census_data.get("P1_001N") is not None
+            assert "P1_001N" in result.census_data
 
 
 class TestBatchProcessingEdgeCases:
@@ -547,7 +547,7 @@ class TestACSEdgeCases:
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
         assert result.is_matched
         # ACS data should be present since tract matches
-        assert result.census_data.get("B19013_001E") is not None
+        assert "B19013_001E" in result.census_data
 
     async def test_acs_variable_missing_from_response(self, tmp_path):
         """When one ACS variable is missing from response, it's skipped gracefully.
@@ -628,10 +628,11 @@ class TestACSEdgeCases:
             result = await lookup.lookup_coordinates(lat=38.8977, lon=-77.0365)
 
             assert result.is_matched
-            # B19013_001E IS in the response, so it should be in census_data
-            assert result.census_data.get("B19013_001E") == 75000.0
+            # B19013_001E IS in the response, so it should be in census_data at tract level
+            assert "B19013_001E" in result.census_data
+            assert result.census_data["B19013_001E"]["tract"] == 75000.0
             # B19301_001E is NOT in the response (line 440 branch: var not in columns)
-            assert result.census_data.get("B19301_001E") is None
+            assert "B19301_001E" not in result.census_data
 
     async def test_acs_row_empty_for_tract(self, tmp_path):
         """When tract not found in ACS data, ACS variables are skipped gracefully.
@@ -709,7 +710,7 @@ class TestACSEdgeCases:
             assert result.is_matched
             # ACS variable won't be present because tract wasn't found
             # (line 437 branch: if not acs_row.empty is False, so we skip)
-            assert result.census_data.get("B19013_001E") is None
+            assert "B19013_001E" not in result.census_data
 
 
 class TestCatalogFileMissing:

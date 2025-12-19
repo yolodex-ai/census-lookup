@@ -8,7 +8,7 @@ from typing import Optional
 import click
 import pandas as pd
 
-from census_lookup import CensusLookup, GeoLevel
+from census_lookup import CensusLookup
 from census_lookup.census.variables import VARIABLES, list_variable_groups
 from census_lookup.data.constants import FIPS_STATES, normalize_state
 from census_lookup.data.manager import DataManager
@@ -55,18 +55,16 @@ def _split_variables(variables: tuple[str, ...]) -> tuple[list[str], list[str]]:
 
 async def _lookup_async(address: str, level: str, variables: tuple[str, ...]):
     """Async implementation of lookup command."""
-    geo_level = GeoLevel[level.upper()]
-
     pl_vars, acs_vars = _split_variables(variables)
 
     lookup_instance = CensusLookup(
-        geo_level=geo_level,
         variables=pl_vars if pl_vars else None,
         acs_variables=acs_vars if acs_vars else None,
     )
 
     try:
         result = await lookup_instance.geocode(address)
+        # Output nested JSON format (census data at all levels)
         click.echo(json.dumps(result.to_dict(), indent=2, default=str))
     finally:
         await lookup_instance.close()
@@ -120,10 +118,8 @@ async def _batch_async(
         raise click.ClickException(f"Column '{address_column}' not found in input file")
 
     # Process
-    geo_level = GeoLevel[level.upper()]
     pl_vars, acs_vars = _split_variables(variables)
     lookup_instance = CensusLookup(
-        geo_level=geo_level,
         variables=pl_vars if pl_vars else None,
         acs_variables=acs_vars if acs_vars else None,
     )
@@ -134,6 +130,7 @@ async def _batch_async(
         results = await lookup_instance.geocode_batch(
             address_series,
             progress=True,
+            output_level=level,  # Flatten census data to this level
         )
 
         # Merge results with original data
@@ -275,11 +272,8 @@ def coords(lat: float, lon: float, level: str, variables: tuple[str, ...]):
 
 async def _coords_async(lat: float, lon: float, level: str, variables: tuple[str, ...]):
     """Async implementation of coords command."""
-    geo_level = GeoLevel[level.upper()]
-
     pl_vars, acs_vars = _split_variables(variables)
     lookup_instance = CensusLookup(
-        geo_level=geo_level,
         variables=pl_vars if pl_vars else None,
         acs_variables=acs_vars if acs_vars else None,
     )

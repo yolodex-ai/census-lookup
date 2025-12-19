@@ -5,7 +5,7 @@ Tests looking up census data by latitude/longitude coordinates.
 
 import pandas as pd
 
-from census_lookup import CensusLookup, GeoLevel
+from census_lookup import CensusLookup
 
 
 class TestCoordinateLookup:
@@ -14,7 +14,6 @@ class TestCoordinateLookup:
     async def test_coordinate_lookup(self, mock_census_http, isolated_data_dir):
         """Look up census data for lat/lon coordinates."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -25,13 +24,14 @@ class TestCoordinateLookup:
         result = await lookup.lookup_coordinates(38.8977, -77.0365)
 
         assert result.is_matched
-        assert result.geoid is not None
-        assert result.census_data.get("P1_001N") is not None
+        assert result.block is not None
+        # Census data is nested by level
+        assert "P1_001N" in result.census_data
+        assert result.census_data["P1_001N"].get("block") is not None
 
     async def test_coordinate_batch_lookup(self, mock_census_http, isolated_data_dir):
         """Batch coordinate lookup with DataFrame."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -57,7 +57,6 @@ class TestCoordinateLookup:
     ):
         """Coordinate lookup handles ACS null values correctly."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             acs_variables=["B19013_001E"],  # Median income - will be null
             data_dir=isolated_data_dir_acs_nulls,
@@ -69,5 +68,6 @@ class TestCoordinateLookup:
         result = await lookup.lookup_coordinates(38.8977, -77.0365)
 
         assert result.is_matched
-        # The ACS variable should be None (null in response)
-        assert result.census_data.get("B19013_001E") is None
+        # The ACS variable should have tract level with None value
+        acs_data = result.census_data.get("B19013_001E")
+        assert acs_data is None or acs_data.get("tract") is None

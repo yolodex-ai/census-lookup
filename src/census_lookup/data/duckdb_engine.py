@@ -134,3 +134,63 @@ class DuckDBEngine:
         result = self.join_census_data([geoid], variables, geo_level)
         row = result.iloc[0]
         return {v: row.get(v) for v in variables}
+
+    def get_variables_all_levels(
+        self,
+        block_geoid: str,
+        variables: List[str],
+    ) -> Dict[str, Dict[str, Optional[float]]]:
+        """
+        Get census variables at ALL geographic levels for a block GEOID.
+
+        Args:
+            block_geoid: 15-digit block GEOID
+            variables: Variables to retrieve
+
+        Returns:
+            Nested dict: {variable: {level: value}}
+            e.g. {"P1_001N": {"block": 19, "block_group": 1392, "tract": 5698, ...}}
+        """
+        if not variables:
+            return {}
+
+        state_fips = block_geoid[:2]
+        parquet_path = str(self.get_census_parquet_path(state_fips))
+
+        # Define all levels and their GEOID lengths
+        levels = [
+            ("block", 15),
+            ("block_group", 12),
+            ("tract", 11),
+            ("county", 5),
+            ("state", 2),
+        ]
+
+        # Build a single efficient query that computes all aggregations
+        # Using UNION ALL to get all levels in one query
+        agg_vars = ", ".join([f"SUM({v}) as {v}" for v in variables])
+
+        union_parts = []
+        for level_name, geoid_len in levels:
+            truncated_geoid = block_geoid[:geoid_len]
+            union_parts.append(f"""
+                SELECT '{level_name}' as level, {agg_vars}
+                FROM read_parquet('{parquet_path}')
+                WHERE LEFT(GEO_ID, {geoid_len}) = '{truncated_geoid}'
+            """)
+
+        sql = " UNION ALL ".join(union_parts)
+        result = self.query(sql)
+
+        # Restructure into nested dict
+        output: Dict[str, Dict[str, Optional[float]]] = {v: {} for v in variables}
+        for _, row in result.iterrows():
+            level = row["level"]
+            for var in variables:
+                val = row.get(var)
+                if val is not None and not (isinstance(val, float) and pd.isna(val)):
+                    output[var][level] = float(val)
+                else:
+                    output[var][level] = None
+
+        return output

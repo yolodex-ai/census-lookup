@@ -5,16 +5,15 @@ Tests batch processing of multiple addresses through the public API.
 
 import pandas as pd
 
-from census_lookup import CensusLookup, GeoLevel
+from census_lookup import CensusLookup
 
 
 class TestBatchLookup:
     """User can geocode multiple addresses at once."""
 
     async def test_batch_geocoding(self, mock_census_http, isolated_data_dir):
-        """Batch geocode returns DataFrame with all results."""
+        """Batch geocode returns DataFrame with flattened results."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -30,13 +29,14 @@ class TestBatchLookup:
         )
 
         assert len(results) == 2
-        assert "geoid" in results.columns
+        # Batch output has all GEOIDs as flat columns
+        assert "block" in results.columns
+        # Census data is flattened at output_level (default: block)
         assert "P1_001N" in results.columns
 
     async def test_batch_from_series(self, mock_census_http, isolated_data_dir):
         """Batch accepts pandas Series as input."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -54,12 +54,11 @@ class TestBatchLookup:
         results = await lookup.geocode_batch(addresses, progress=False)
 
         assert len(results) == 2
-        assert "geoid" in results.columns
+        assert "block" in results.columns
 
     async def test_batch_with_unmatched(self, mock_census_http, isolated_data_dir):
         """Batch handles unmatched addresses gracefully."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )

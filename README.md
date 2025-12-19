@@ -12,7 +12,7 @@ A Python library for mapping US addresses to Census data locally, without relyin
 
 - **Fully offline geocoding** using TIGER Address Range files (~95% match rate)
 - **Lazy per-state data downloading** - only download data for states you need
-- **Configurable geographic levels** - block, block group, tract, or county
+- **Census data at ALL geographic levels** - block, block group, tract, county, and state in a single lookup
 - **Two Census data sources**:
   - **PL 94-171** (Redistricting Data): Population, race, housing counts at block level
   - **ACS 5-Year Estimates**: Income, education, employment, housing characteristics at tract level
@@ -35,13 +35,13 @@ pip install census-lookup
 
 ```bash
 # Look up a single address (auto-downloads data as needed)
-uvx census-lookup lookup "123 Main St, Los Angeles, CA 90012" --level block
+uvx census-lookup lookup "123 Main St, Los Angeles, CA 90012"
 
 # Include specific census variables
 uvx census-lookup lookup "123 Main St, Los Angeles, CA 90012" -v P1_001N -v H1_001N
 
-# Process a batch file
-uvx census-lookup batch input.csv output.csv --address-column addr --level tract
+# Process a batch file (use -l to set output level for CSV columns)
+uvx census-lookup batch input.csv output.csv --address-column addr -l tract
 
 # Pre-download data for states (optional - data downloads automatically)
 uvx census-lookup download CA TX NY
@@ -56,7 +56,7 @@ uvx census-lookup info
 ### Example Output
 
 ```bash
-$ uvx census-lookup lookup "1600 Pennsylvania Avenue NW, Washington, DC 20500"
+$ uvx census-lookup lookup "1600 Pennsylvania Avenue NW, Washington, DC 20500" -v P1_001N
 ```
 
 ```json
@@ -67,15 +67,22 @@ $ uvx census-lookup lookup "1600 Pennsylvania Avenue NW, Washington, DC 20500"
   "longitude": -77.035117,
   "match_type": "interpolated",
   "match_score": 0.9,
-  "geoid": "110010101003014",
   "state_fips": "11",
   "county_fips": "11001",
   "tract": "11001010100",
   "block_group": "110010101003",
   "block": "110010101003014",
-  "P1_001N": 19.0
+  "P1_001N": {
+    "block": 19.0,
+    "block_group": 963.0,
+    "tract": 2699.0,
+    "county": 689545.0,
+    "state": 689545.0
+  }
 }
 ```
+
+Census data is returned at **all geographic levels** in a single lookup. Each variable contains values aggregated at block, block group, tract, county, and state levels.
 
 With ACS variables (median income, home value):
 
@@ -86,32 +93,38 @@ $ uvx census-lookup lookup "1600 Pennsylvania Avenue NW, Washington, DC 20500" \
 
 ```json
 {
-  ...
-  "B19013_001E": 72500.0,
-  "B25077_001E": 485000.0
+  "...": "...",
+  "B19013_001E": {
+    "tract": 72500.0
+  },
+  "B25077_001E": {
+    "tract": 485000.0
+  }
 }
 ```
+
+ACS variables are available at tract level and above.
 
 ### Python API
 
 ```python
-from census_lookup import CensusLookup, GeoLevel
+from census_lookup import CensusLookup
 
 # Initialize (first use will download data for the state)
 lookup = CensusLookup(
-    geo_level=GeoLevel.BLOCK,
     variables=["P1_001N", "H1_001N"],  # Population, Housing units
 )
 
 # Single address lookup
-result = lookup.geocode("123 Main St, Los Angeles, CA 90012")
-print(f"GEOID: {result.geoid}")
-print(f"Population: {result.census_data['P1_001N']}")
+result = await lookup.geocode("123 Main St, Los Angeles, CA 90012")
+print(f"Block GEOID: {result.block}")
+print(f"Block Population: {result.census_data['P1_001N']['block']}")
+print(f"Tract Population: {result.census_data['P1_001N']['tract']}")
 
 # Batch processing
 import pandas as pd
 df = pd.read_csv("addresses.csv")
-results = lookup.geocode_batch(df["address"], progress=True)
+results = await lookup.geocode_batch(df["address"], progress=True)
 ```
 
 ## Geographic Levels
@@ -164,26 +177,28 @@ Available at **tract level** and above. Includes richer demographic data:
 Over 100+ ACS variables available. Run `uvx census-lookup variables --acs` for the full list
 
 ```python
-from census_lookup import CensusLookup, GeoLevel, list_acs_variable_groups
+from census_lookup import CensusLookup, list_acs_variable_groups
 
 # See available ACS variable groups
 print(list_acs_variable_groups())
 
 # Use ACS variables with your lookup
 lookup = CensusLookup(
-    geo_level=GeoLevel.TRACT,
     variables=["P1_001N"],  # PL 94-171 population
     acs_variables=["B19013_001E", "B25077_001E"],  # Median income, home value
     # Or use variable groups:
     # acs_variable_groups=["income", "housing"],
 )
 
-result = lookup.geocode("123 Main St, Los Angeles, CA 90012")
-print(f"Median Income: ${result.census_data['B19013_001E']:,}")
+result = await lookup.geocode("123 Main St, Los Angeles, CA 90012")
+# PL 94-171 data available at all levels
+print(f"Block Population: {result.census_data['P1_001N']['block']}")
+# ACS data available at tract level
+print(f"Median Income: ${result.census_data['B19013_001E']['tract']:,}")
 ```
 
-**Note**: ACS data is available at tract level and above. When using block-level
-geocoding with ACS variables, the ACS data is joined at tract level.
+**Note**: ACS data is available at tract level and above. When you request ACS variables,
+they will appear in the nested output with `tract` (and higher) levels populated.
 
 ## Data Storage
 

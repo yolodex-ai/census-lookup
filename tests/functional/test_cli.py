@@ -18,7 +18,7 @@ class TestCLILookup:
     """User can look up addresses via command line."""
 
     def test_lookup_output(self):
-        """Look up address with JSON output."""
+        """Look up address with nested JSON output."""
         runner = CliRunner()
         result = runner.invoke(
             cli,
@@ -37,37 +37,41 @@ class TestCLILookup:
         json_end = output.rfind("}") + 1
         json_str = output[json_start:json_end]
         data = json.loads(json_str)
-        # Result to_dict() doesn't include is_matched, but has geoid
-        assert data["geoid"] is not None
+        # Output includes all GEOIDs
+        assert data["block"] is not None
+        # Census data is now nested by level
         assert "P1_001N" in data
+        assert isinstance(data["P1_001N"], dict)
 
     def test_lookup_different_levels(self):
-        """Look up at different geographic levels."""
+        """Look up returns all geographic levels regardless of -l flag."""
         runner = CliRunner()
 
-        for level in ["block", "tract", "county"]:
-            result = runner.invoke(
-                cli,
-                [
-                    "lookup",
-                    "1600 Pennsylvania Avenue NW, Washington, DC",
-                    "-l",
-                    level,
-                    "-v",
-                    "P1_001N",
-                ],
-            )
+        # Level flag is ignored for single lookups (all levels returned)
+        result = runner.invoke(
+            cli,
+            [
+                "lookup",
+                "1600 Pennsylvania Avenue NW, Washington, DC",
+                "-l",
+                "tract",
+                "-v",
+                "P1_001N",
+            ],
+        )
 
-            assert result.exit_code == 0, f"{level}: {result.output}"
-            data = json.loads(result.output)
-            assert data["geoid"] is not None
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        # All GEOIDs should be present
+        assert data["block"] is not None
+        assert data["tract"] is not None
 
 
 class TestCLIBatch:
     """User can batch process addresses via command line."""
 
     def test_batch_csv(self):
-        """Process CSV file of addresses."""
+        """Process CSV file of addresses with flattened output."""
         runner = CliRunner()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -85,7 +89,7 @@ class TestCLIBatch:
             )
             df.to_csv(input_path, index=False)
 
-            # Run batch
+            # Run batch with tract level output
             result = runner.invoke(
                 cli,
                 [
@@ -102,10 +106,10 @@ class TestCLIBatch:
             assert result.exit_code == 0, result.output
             assert output_path.exists()
 
-            # Verify output
+            # Verify output - batch output is flat with all GEOIDs
             output_df = pd.read_csv(output_path)
             assert len(output_df) == 2
-            assert "geoid" in output_df.columns
+            assert "block" in output_df.columns  # All levels in output
 
     def test_batch_parquet_output(self):
         """Output to parquet format."""
@@ -272,7 +276,7 @@ class TestCLICoords:
         # Should find DC data
         assert result.exit_code == 0
         # Either finds data or reports no match
-        assert "geoid" in result.output.lower() or "No census block found" in result.output
+        assert "block" in result.output.lower() or "No census block found" in result.output
 
 
 class TestCLIVersion:
@@ -364,7 +368,7 @@ class TestCLIEdgeCases:
             assert output_path.exists()
             # Should be CSV format despite .unknown extension
             content = output_path.read_text()
-            assert "geoid" in content
+            assert "block" in content  # All GEOIDs in output
 
     def test_clear_all_with_confirm(self):
         """Clear all cached data with confirmation."""
@@ -494,8 +498,8 @@ class TestCLICoordsWithPreloadedData:
         )
 
         assert result.exit_code == 0
-        # Should output JSON with geoid
-        assert "geoid" in result.output.lower()
+        # Should output JSON with block GEOID
+        assert "block" in result.output.lower()
 
     def test_coords_no_states_downloaded(self, tmp_path, monkeypatch):
         """Coords command shows message when no states are downloaded."""

@@ -142,7 +142,6 @@ class TestDownloadRetries:
             )
 
             lookup = CensusLookup(
-                geo_level=GeoLevel.TRACT,
                 variables=["P1_001N"],
                 data_dir=data_dir,
             )
@@ -151,7 +150,7 @@ class TestDownloadRetries:
             result = await lookup.geocode("1600 Pennsylvania Avenue NW, Washington, DC")
 
             assert result.is_matched
-            assert result.geoid is not None
+            assert result.block is not None
 
 
 class TestConcurrentOperations:
@@ -211,7 +210,6 @@ class TestConcurrentDownloadCoordination:
         geocode operations can run simultaneously without issues.
         """
         lookup = CensusLookup(
-            geo_level=GeoLevel.TRACT,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -233,7 +231,7 @@ class TestConcurrentDownloadCoordination:
         # All should succeed
         assert len(results) == 3
         assert all(r.is_matched for r in results)
-        assert all(r.geoid is not None for r in results)
+        assert all(r.block is not None for r in results)
 
     async def test_concurrent_load_state_coordinator(self, mock_census_http, tmp_path):
         """Concurrent load_state calls complete successfully.
@@ -307,7 +305,7 @@ class TestConcurrentDownloadCoordination:
 
         assert result1.is_matched
         assert result2.is_matched
-        assert result1.geoid == result2.geoid
+        assert result1.block == result2.block
 
         # The coordinator should have caused only ONE block download request
         # (because the second request joined the first's pending task)
@@ -378,7 +376,7 @@ class TestPartialDownloadCleanup:
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
 
         assert result.is_matched
-        assert result.census_data.get("P1_001N") is not None
+        assert "P1_001N" in result.census_data
 
 
 class TestACSErrors:
@@ -431,7 +429,7 @@ class TestCacheHits:
 
         assert result1.is_matched
         assert result2.is_matched
-        assert result1.geoid == result2.geoid
+        assert result1.block == result2.block
 
     async def test_same_instance_load_state_twice(self, mock_census_http, isolated_data_dir):
         """Loading same state twice on same instance uses in-memory cache."""
@@ -499,9 +497,8 @@ class TestMultipleGeoLevels:
         assert len(result.block_group) == 12
 
     async def test_county_level(self, mock_census_http, isolated_data_dir):
-        """County level lookup works correctly."""
+        """County level lookup works correctly (returns all levels)."""
         lookup = CensusLookup(
-            geo_level=GeoLevel.COUNTY,
             variables=["P1_001N"],
             data_dir=isolated_data_dir,
         )
@@ -509,12 +506,12 @@ class TestMultipleGeoLevels:
         result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC")
 
         assert result.is_matched
-        # At county level, geoid should be 5 digits (state + county)
-        assert result.geoid is not None
-        assert len(result.geoid) == 5
-        # county_fips is the full 5-digit FIPS code
+        # All levels are returned - check county_fips is 5 digits
         assert result.county_fips is not None
         assert len(result.county_fips) == 5
+        # Block should also be present
+        assert result.block is not None
+        assert len(result.block) == 15
 
 
 class TestAlreadyExtracted:

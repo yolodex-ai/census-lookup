@@ -6,7 +6,7 @@ from urllib.parse import unquote
 
 from aioresponses import CallbackResult, aioresponses
 
-from census_lookup import CensusLookup, GeoLevel
+from census_lookup import CensusLookup
 
 # Import helpers from conftest
 from tests.functional.conftest import (
@@ -71,7 +71,6 @@ class TestACSEdgeCases:
             mocked.get(acs_pattern, callback=acs_callback_wrong_tract, repeat=True)
 
             lookup = CensusLookup(
-                geo_level=GeoLevel.TRACT,
                 variables=["P1_001N"],
                 acs_variables=["B19013_001E"],
                 data_dir=data_dir,
@@ -80,9 +79,11 @@ class TestACSEdgeCases:
             result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC 20500")
 
             assert result.is_matched
-            assert result.census_data.get("P1_001N") is not None
+            # PL 94-171 data should be present at all levels
+            assert "P1_001N" in result.census_data
+            assert result.census_data["P1_001N"].get("block") is not None
             # ACS data should be missing because tract didn't match
-            assert result.census_data.get("B19013_001E") is None
+            assert "B19013_001E" not in result.census_data
 
     async def test_acs_variable_not_in_columns(self, tmp_path: Path):
         """When ACS response doesn't include requested variable column.
@@ -126,7 +127,6 @@ class TestACSEdgeCases:
             mocked.get(acs_pattern, callback=acs_callback_missing_var, repeat=True)
 
             lookup = CensusLookup(
-                geo_level=GeoLevel.TRACT,
                 variables=["P1_001N"],
                 acs_variables=["B19013_001E"],  # Request this, but API returns B19301_001E
                 data_dir=data_dir,
@@ -135,9 +135,11 @@ class TestACSEdgeCases:
             result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC 20500")
 
             assert result.is_matched
-            assert result.census_data.get("P1_001N") is not None
+            # PL 94-171 data should be present
+            assert "P1_001N" in result.census_data
+            assert result.census_data["P1_001N"].get("block") is not None
             # B19013_001E wasn't in the response columns
-            assert result.census_data.get("B19013_001E") is None
+            assert "B19013_001E" not in result.census_data
 
     async def test_acs_null_value_becomes_none(self, tmp_path: Path):
         """When ACS returns null/NaN value, it becomes None in result.
@@ -181,7 +183,6 @@ class TestACSEdgeCases:
             mocked.get(acs_pattern, callback=acs_callback_null_value, repeat=True)
 
             lookup = CensusLookup(
-                geo_level=GeoLevel.TRACT,
                 variables=["P1_001N"],
                 acs_variables=["B19013_001E"],
                 data_dir=data_dir,
@@ -190,6 +191,9 @@ class TestACSEdgeCases:
             result = await lookup.geocode("1600 Pennsylvania Ave NW, Washington, DC 20500")
 
             assert result.is_matched
-            assert result.census_data.get("P1_001N") is not None
-            # Null value should be converted to None
-            assert result.census_data.get("B19013_001E") is None
+            # PL 94-171 data should be present
+            assert "P1_001N" in result.census_data
+            assert result.census_data["P1_001N"].get("block") is not None
+            # Null value should be converted to None in nested structure
+            assert "B19013_001E" in result.census_data
+            assert result.census_data["B19013_001E"].get("tract") is None

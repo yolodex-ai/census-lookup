@@ -38,24 +38,24 @@ class LookupResult:
     match_type: str = "no_match"  # "exact", "interpolated", "no_match"
     match_score: float = 0.0  # 0.0 to 1.0
 
-    # Geographic identifiers
-    geoid: Optional[str] = None  # Full GEOID at requested level
+    # Geographic identifiers (always all levels)
     state_fips: Optional[str] = None
-    county_fips: Optional[str] = None
-    tract: Optional[str] = None
-    block_group: Optional[str] = None
-    block: Optional[str] = None
+    county_fips: Optional[str] = None  # 5-digit: state + county
+    tract: Optional[str] = None  # 11-digit: state + county + tract
+    block_group: Optional[str] = None  # 12-digit: tract + block group
+    block: Optional[str] = None  # 15-digit: block group + block
 
-    # Census data (dynamic based on selected variables)
-    census_data: Dict[str, Any] = field(default_factory=dict)
+    # Census data: nested dict of variable -> level -> value
+    # e.g. {"P1_001N": {"block": 19, "tract": 5698}, "B19013_001E": {"tract": 149519}}
+    census_data: Dict[str, Dict[str, Optional[float]]] = field(default_factory=dict)
 
     @property
     def is_matched(self) -> bool:
         """Check if the lookup was successful."""
-        return self.geoid is not None
+        return self.block is not None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """Convert to dictionary with nested census data."""
         return {
             "input_address": self.input_address,
             "matched_address": self.matched_address,
@@ -63,7 +63,6 @@ class LookupResult:
             "longitude": self.longitude,
             "match_type": self.match_type,
             "match_score": self.match_score,
-            "geoid": self.geoid,
             "state_fips": self.state_fips,
             "county_fips": self.county_fips,
             "tract": self.tract,
@@ -72,9 +71,36 @@ class LookupResult:
             **self.census_data,
         }
 
+    def to_flat_dict(self, level: str = "block") -> Dict[str, Any]:
+        """Convert to flat dictionary at a specific level (for backwards compat)."""
+        result = {
+            "input_address": self.input_address,
+            "matched_address": self.matched_address,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "match_type": self.match_type,
+            "match_score": self.match_score,
+            "state_fips": self.state_fips,
+            "county_fips": self.county_fips,
+            "tract": self.tract,
+            "block_group": self.block_group,
+            "block": self.block,
+        }
+        # Add census variables at the specified level
+        for var, levels in self.census_data.items():
+            if level in levels:
+                result[var] = levels[level]
+            else:
+                # Fall back to most granular available level
+                for lvl in ["block", "block_group", "tract", "county", "state"]:
+                    if lvl in levels:
+                        result[var] = levels[lvl]
+                        break
+        return result
+
     def to_series(self) -> pd.Series:
-        """Convert to pandas Series."""
-        return pd.Series(self.to_dict())
+        """Convert to pandas Series (flat at block level)."""
+        return pd.Series(self.to_flat_dict("block"))
 
 
 class CensusLookup:
@@ -230,20 +256,18 @@ class CensusLookup:
     async def geocode(
         self,
         address: str,
-        geo_level: Optional[GeoLevel] = None,
+        geo_level: Optional[GeoLevel] = None,  # Deprecated, kept for backwards compat
     ) -> LookupResult:
         """
-        Geocode a single address and return census data.
+        Geocode a single address and return census data at all levels.
 
         Args:
             address: Full address string
-            geo_level: Override default geographic level
+            geo_level: Deprecated - ignored, all levels always returned
 
         Returns:
-            LookupResult with coordinates, GEOID, and census data
+            LookupResult with coordinates, all GEOIDs, and census data at all levels
         """
-        level = geo_level or self.geo_level
-
         # Parse address
         try:
             parsed = self._parser.parse(address)
@@ -291,19 +315,18 @@ class CensusLookup:
                 match_type="no_block",
             )
 
-        # Truncate GEOID to requested level
-        geoid = block_geoid[: level.geoid_length]
-
         # Parse GEOID components
         components = GEOIDParser.parse(block_geoid)
 
-        # Get census data (PL 94-171)
-        census_data = self._data_manager.duckdb.get_variables_for_geoid(
-            geoid,
-            self._variables,
-        )
+        # Get census data at ALL levels (PL 94-171)
+        census_data: Dict[str, Dict[str, Optional[float]]] = {}
+        if self._variables:
+            census_data = self._data_manager.duckdb.get_variables_all_levels(
+                block_geoid,
+                self._variables,
+            )
 
-        # Get ACS data if requested (at tract level)
+        # Get ACS data if requested (only available at tract level)
         if self._acs_variables:
             tract_geoid = block_geoid[:11]  # Truncate to tract level
             acs_df = await self._data_manager.get_acs_data(
@@ -318,9 +341,9 @@ class CensusLookup:
                         col = cast(pd.Series, acs_row[var])
                         raw_value: Any = col.iloc[0]
                         if bool(pd.notna(raw_value)):
-                            census_data[var] = float(raw_value)
+                            census_data[var] = {"tract": float(raw_value)}
                         else:
-                            census_data[var] = None
+                            census_data[var] = {"tract": None}
 
         return LookupResult(
             input_address=address,
@@ -330,37 +353,38 @@ class CensusLookup:
             longitude=geocode_result.longitude,
             match_type=geocode_result.match_type,
             match_score=geocode_result.match_score,
-            geoid=geoid,
             state_fips=components.state,
             county_fips=components.county_fips,
             tract=components.tract_geoid,
             block_group=components.block_group_geoid,
-            block=block_geoid if level == GeoLevel.BLOCK else None,
+            block=block_geoid,
             census_data=census_data,
         )
 
     async def geocode_batch(
         self,
         addresses: Union[List[str], pd.Series],
-        geo_level: Optional[GeoLevel] = None,
+        geo_level: Optional[GeoLevel] = None,  # Deprecated, kept for backwards compat
         progress: bool = True,
+        output_level: str = "block",  # Level for flattening census data in output
     ) -> pd.DataFrame:
         """
         Geocode multiple addresses concurrently.
 
         Args:
             addresses: List or Series of address strings
-            geo_level: Geographic level for results
+            geo_level: Deprecated - ignored
             progress: Show progress bar
+            output_level: Level at which to flatten census data (block, tract, etc.)
 
         Returns:
-            DataFrame with original addresses and census data
+            DataFrame with original addresses and census data (flattened to output_level)
         """
         if isinstance(addresses, pd.Series):
             addresses = addresses.tolist()
 
         # Geocode all addresses concurrently
-        tasks = [self.geocode(address, geo_level) for address in addresses]
+        tasks = [self.geocode(address) for address in addresses]
 
         if progress:
             from tqdm import tqdm
@@ -369,11 +393,11 @@ class CensusLookup:
             with tqdm(total=len(tasks), desc="Geocoding") as pbar:
                 for coro in asyncio.as_completed(tasks):
                     result = await coro
-                    results.append(result.to_dict())
+                    results.append(result.to_flat_dict(output_level))
                     pbar.update(1)
         else:
             results_list = await asyncio.gather(*tasks)
-            results = [r.to_dict() for r in results_list]
+            results = [r.to_flat_dict(output_level) for r in results_list]
 
         return pd.DataFrame(results)
 
@@ -381,21 +405,19 @@ class CensusLookup:
         self,
         lat: float,
         lon: float,
-        geo_level: Optional[GeoLevel] = None,
+        geo_level: Optional[GeoLevel] = None,  # Deprecated, kept for backwards compat
     ) -> LookupResult:
         """
-        Look up census data for a coordinate pair.
+        Look up census data for a coordinate pair at all levels.
 
         Args:
             lat: Latitude (decimal degrees)
             lon: Longitude (decimal degrees)
-            geo_level: Override default geographic level
+            geo_level: Deprecated - ignored, all levels always returned
 
         Returns:
-            LookupResult with GEOID and census data
+            LookupResult with all GEOIDs and census data at all levels
         """
-        level = geo_level or self.geo_level
-
         # Determine state from coordinates (rough bounding box check)
         # For now, require state to be loaded first
         point = Point(lon, lat)
@@ -415,17 +437,17 @@ class CensusLookup:
                 match_type="no_block",
             )
 
-        # Truncate to requested level
-        geoid = block_geoid[: level.geoid_length]
         components = GEOIDParser.parse(block_geoid)
 
-        # Get census data (PL 94-171)
-        census_data = self._data_manager.duckdb.get_variables_for_geoid(
-            geoid,
-            self._variables,
-        )
+        # Get census data at ALL levels (PL 94-171)
+        census_data: Dict[str, Dict[str, Optional[float]]] = {}
+        if self._variables:
+            census_data = self._data_manager.duckdb.get_variables_all_levels(
+                block_geoid,
+                self._variables,
+            )
 
-        # Get ACS data if requested (at tract level)
+        # Get ACS data if requested (only available at tract level)
         if self._acs_variables:
             tract_geoid = block_geoid[:11]  # Truncate to tract level
             acs_df = await self._data_manager.get_acs_data(
@@ -441,21 +463,20 @@ class CensusLookup:
                         col = cast(pd.Series, acs_row[var])
                         raw_value: Any = col.iloc[0]
                         if bool(pd.notna(raw_value)):
-                            census_data[var] = float(raw_value)
+                            census_data[var] = {"tract": float(raw_value)}
                         else:
-                            census_data[var] = None
+                            census_data[var] = {"tract": None}
 
         return LookupResult(
             latitude=lat,
             longitude=lon,
             match_type="coordinates",
             match_score=1.0,
-            geoid=geoid,
             state_fips=components.state,
             county_fips=components.county_fips,
             tract=components.tract_geoid,
             block_group=components.block_group_geoid,
-            block=block_geoid if level == GeoLevel.BLOCK else None,
+            block=block_geoid,
             census_data=census_data,
         )
 
