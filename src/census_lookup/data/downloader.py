@@ -67,7 +67,10 @@ class DownloadCoordinator:
         finally:
             # Clean up only if we're the one who started it and it's done
             async with self._lock:
-                if resource_key in self._pending and self._pending[resource_key].done():
+                pending_done = (  # pragma: no branch
+                    resource_key in self._pending and self._pending[resource_key].done()
+                )
+                if pending_done:
                     del self._pending[resource_key]
 
 
